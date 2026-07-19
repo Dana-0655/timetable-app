@@ -34,6 +34,15 @@ class Faculty(db.Model):
     subject_expertise = db.Column(db.String(255), nullable=True)
     created_at = db.Column(db.DateTime, server_default=db.func.now())
 
+class Class(db.Model):
+    class_id = db.Column(db.Integer, primary_key=True)
+    college_id = db.Column(db.Integer, db.ForeignKey('college.college_id'), nullable=False)
+    year = db.Column(db.String(20), nullable=False)
+    section = db.Column(db.String(10), nullable=False)
+    department = db.Column(db.String(100), nullable=False)
+    cc_faculty_id = db.Column(db.Integer, db.ForeignKey('faculty.faculty_id'), nullable=True)
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+
 @app.route("/")
 def home():
     return "Timetable App Backend is Running!"
@@ -148,6 +157,39 @@ def login_faculty():
         })
     else:
         return jsonify({"error": "Incorrect password"}), 401
-        
+
+@app.route("/add_class", methods=["POST"])
+def add_class():
+    data = request.get_json()
+
+    admin = Admin.query.filter_by(admin_id=data["admin_id"]).first()
+    if not admin:
+        return jsonify({"error": "Invalid admin"}), 400
+
+    new_class = Class(
+        college_id=admin.college_id,
+        year=data["year"],
+        section=data["section"],
+        department=data["department"]
+    )
+    db.session.add(new_class)
+    db.session.commit()
+
+    return jsonify({"message": "Class created successfully!", "class_id": new_class.class_id})
+
+@app.route("/classes/<int:college_id>", methods=["GET"])
+def get_classes(college_id):
+    classes = Class.query.filter_by(college_id=college_id).all()
+    result = []
+    for c in classes:
+        result.append({
+            "class_id": c.class_id,
+            "year": c.year,
+            "section": c.section,
+            "department": c.department,
+            "cc_faculty_id": c.cc_faculty_id
+        })
+    return jsonify(result)
+
 if __name__ == "__main__":
     app.run(debug=True)
