@@ -52,6 +52,38 @@ class CCRequest(db.Model):
     requested_at = db.Column(db.DateTime, server_default=db.func.now())
     resolved_at = db.Column(db.DateTime, nullable=True)
 
+class Course(db.Model):
+    course_id = db.Column(db.Integer, primary_key=True)
+    class_id = db.Column(db.Integer, db.ForeignKey('class.class_id'), nullable=False)
+    course_name = db.Column(db.String(100), nullable=False)
+    faculty_id = db.Column(db.Integer, db.ForeignKey('faculty.faculty_id'), nullable=True)
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+
+class CourseFacultyRequest(db.Model):
+    cf_request_id = db.Column(db.Integer, primary_key=True)
+    course_id = db.Column(db.Integer, db.ForeignKey('course.course_id'), nullable=False)
+    faculty_id = db.Column(db.Integer, db.ForeignKey('faculty.faculty_id'), nullable=False)
+    initiated_by = db.Column(db.String(20), nullable=False)  # 'faculty', 'cc', or 'admin'
+    status = db.Column(db.String(20), nullable=False, default='pending')
+    requested_at = db.Column(db.DateTime, server_default=db.func.now())
+    resolved_at = db.Column(db.DateTime, nullable=True)
+
+class TimetableConfig(db.Model):
+    config_id = db.Column(db.Integer, primary_key=True)
+    class_id = db.Column(db.Integer, db.ForeignKey('class.class_id'), nullable=False)
+    periods_per_day = db.Column(db.Integer, nullable=False)
+    period_duration_minutes = db.Column(db.Integer, nullable=False)
+    start_time = db.Column(db.String(10), nullable=False)  # e.g. "09:00"
+
+class TimetableEntry(db.Model):
+    entry_id = db.Column(db.Integer, primary_key=True)
+    class_id = db.Column(db.Integer, db.ForeignKey('class.class_id'), nullable=False)
+    day_of_week = db.Column(db.String(10), nullable=False)  # MON, TUE, etc.
+    period_no = db.Column(db.Integer, nullable=False)
+    course_id = db.Column(db.Integer, db.ForeignKey('course.course_id'), nullable=True)
+    status_color = db.Column(db.String(20), nullable=False, default='normal')
+
+
 @app.route("/")
 def home():
     return "Timetable App Backend is Running!"
@@ -250,6 +282,114 @@ def resolve_cc_request():
     db.session.commit()
 
     return jsonify({"message": f"CC request {data['decision']} successfully!"})
+
+@app.route("/add_course", methods=["POST"])
+def add_course():
+    data = request.get_json()
+    new_course = Course(
+        class_id=data["class_id"],
+        course_name=data["course_name"]
+    )
+    db.session.add(new_course)
+    db.session.commit()
+    return jsonify({"message": "Course added successfully!", "course_id": new_course.course_id})
+
+@app.route("/request_course_faculty", methods=["POST"])
+def request_course_faculty():
+    data = request.get_json()
+    new_request = CourseFacultyRequest(
+        course_id=data["course_id"],
+        faculty_id=data["faculty_id"],
+        initiated_by="faculty",
+        status="pending"
+    )
+    db.session.add(new_request)
+    db.session.commit()
+    return jsonify({"message": "Course faculty request sent!", "request_id": new_request.cf_request_id})
+
+@app.route("/course_faculty_requests/<int:course_id>", methods=["GET"])
+def get_course_faculty_requests(course_id):
+    requests = CourseFacultyRequest.query.filter_by(course_id=course_id, status="pending").all()
+    result = []
+    for r in requests:
+        faculty = Faculty.query.get(r.faculty_id)
+        result.append({
+            "cf_request_id": r.cf_request_id,
+            "faculty_id": r.faculty_id,
+            "faculty_name": faculty.name,
+            "status": r.status
+        })
+    return jsonify(result)
+
+@app.route("/resolve_course_faculty_request", methods=["POST"])
+def resolve_course_faculty_request():
+    data = request.get_json()
+    cf_request = CourseFacultyRequest.query.get(data["cf_request_id"])
+
+    if not cf_request:
+        return jsonify({"error": "Request not found"}), 404
+    if cf_request.status != "pending":
+        return jsonify({"error": "This request has already been resolved"}), 400
+
+    cf_request.status = data["decision"]
+    cf_request.resolved_at = db.func.now()
+
+    if data["decision"] == "accepted":
+        course = Course.query.get(cf_request.course_id)
+        course.faculty_id = cf_request.faculty_id
+
+    db.session.commit()
+    return jsonify({"message": f"Course faculty request {data['decision']} successfully!"})
+
+@app.route("/set_timetable_config", methods=["POST"])
+def set_timetable_config():
+    data = request.get_json()
+    new_config = TimetableConfig(
+        class_id=data["class_id"],
+        periods_per_day=data["periods_per_day"],
+        period_duration_minutes=data["period_duration_minutes"],
+        start_time=data["start_time"]
+    )
+    db.session.add(new_config)
+    db.session.commit()
+    return jsonify({"message": "Timetable config set successfully!"})
+
+@app.route("/add_timetable_entry", methods=["POST"])
+def add_timetable_entry():
+    data = request.get_json()
+    new_entry = TimetableEntry(
+        class_id=data["class_id"],
+        day_of_week=data["day_of_week"],
+        period_no=data["period_no"],
+        course_id=data.get("course_id")
+    )
+    db.session.add(new_entry)
+    db.session.commit()
+    return jsonify({"message": "Timetable entry added!", "entry_id": new_entry.entry_id})
+
+@app.route("/timetable/<int:class_id>", methods=["GET"])
+def get_timetable(class_id):
+    entries = TimetableEntry.query.filter_by(class_id=class_id).all()
+    result = []
+    for e in entries:
+        course_name = None
+        faculty_name = None
+        if e.course_id:
+            course = Course.query.get(e.course_id)
+            course_name = course.course_name
+            if course.faculty_id:
+                faculty = Faculty.query.get(course.faculty_id)
+                faculty_name = faculty.name
+
+        result.append({
+            "entry_id": e.entry_id,
+            "day_of_week": e.day_of_week,
+            "period_no": e.period_no,
+            "course_name": course_name,
+            "faculty_name": faculty_name,
+            "status_color": e.status_color
+        })
+    return jsonify(result)
 
 if __name__ == "__main__":
     app.run(debug=True)
