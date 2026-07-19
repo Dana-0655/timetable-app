@@ -391,5 +391,34 @@ def get_timetable(class_id):
         })
     return jsonify(result)
 
+@app.route("/verify_college_code/<string:code>", methods=["GET"])
+def verify_college_code(code):
+    college = College.query.filter_by(college_code=code).first()
+    if not college:
+        return jsonify({"error": "Invalid college code"}), 404
+
+    return jsonify({
+        "college_id": college.college_id,
+        "college_name": college.college_name
+    })
+
+@app.route("/departments/<int:college_id>", methods=["GET"])
+def get_departments(college_id):
+    classes = Class.query.filter_by(college_id=college_id).all()
+    departments = list(set([c.department for c in classes]))
+    return jsonify(departments)
+
+@app.route("/classes_by_department/<int:college_id>/<string:department>", methods=["GET"])
+def get_classes_by_department(college_id, department):
+    classes = Class.query.filter_by(college_id=college_id, department=department).all()
+    result = []
+    for c in classes:
+        result.append({
+            "class_id": c.class_id,
+            "year": c.year,
+            "section": c.section
+        })
+    return jsonify(result)
+
 if __name__ == "__main__":
     app.run(debug=True)
