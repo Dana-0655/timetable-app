@@ -78,5 +78,23 @@ def register_admin():
 
     return jsonify({"message": "Admin registered successfully!"})
 
+@app.route("/login_admin", methods=["POST"])
+def login_admin():
+    data = request.get_json()
+
+    admin = Admin.query.filter_by(email=data["email"]).first()
+    if not admin:
+        return jsonify({"error": "Admin not found"}), 404
+
+    if bcrypt.check_password_hash(admin.password_hash, data["password"]):
+        return jsonify({
+            "message": "Login successful",
+            "admin_id": admin.admin_id,
+            "name": admin.name,
+            "college_id": admin.college_id
+        })
+    else:
+        return jsonify({"error": "Incorrect password"}), 401
+
 if __name__ == "__main__":
     app.run(debug=True)
