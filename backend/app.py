@@ -43,6 +43,15 @@ class Class(db.Model):
     cc_faculty_id = db.Column(db.Integer, db.ForeignKey('faculty.faculty_id'), nullable=True)
     created_at = db.Column(db.DateTime, server_default=db.func.now())
 
+class CCRequest(db.Model):
+    cc_request_id = db.Column(db.Integer, primary_key=True)
+    class_id = db.Column(db.Integer, db.ForeignKey('class.class_id'), nullable=False)
+    faculty_id = db.Column(db.Integer, db.ForeignKey('faculty.faculty_id'), nullable=False)
+    initiated_by = db.Column(db.String(20), nullable=False)  # 'faculty' or 'admin'
+    status = db.Column(db.String(20), nullable=False, default='pending')  # pending/accepted/rejected
+    requested_at = db.Column(db.DateTime, server_default=db.func.now())
+    resolved_at = db.Column(db.DateTime, nullable=True)
+
 @app.route("/")
 def home():
     return "Timetable App Backend is Running!"
@@ -190,6 +199,57 @@ def get_classes(college_id):
             "cc_faculty_id": c.cc_faculty_id
         })
     return jsonify(result)
+
+@app.route("/request_cc", methods=["POST"])
+def request_cc():
+    data = request.get_json()
+
+    new_request = CCRequest(
+        class_id=data["class_id"],
+        faculty_id=data["faculty_id"],
+        initiated_by="faculty",
+        status="pending"
+    )
+    db.session.add(new_request)
+    db.session.commit()
+
+    return jsonify({"message": "CC request sent successfully!", "request_id": new_request.cc_request_id})
+
+@app.route("/cc_requests/<int:class_id>", methods=["GET"])
+def get_cc_requests(class_id):
+    requests = CCRequest.query.filter_by(class_id=class_id, status="pending").all()
+    result = []
+    for r in requests:
+        faculty = Faculty.query.get(r.faculty_id)
+        result.append({
+            "cc_request_id": r.cc_request_id,
+            "faculty_id": r.faculty_id,
+            "faculty_name": faculty.name,
+            "status": r.status
+        })
+    return jsonify(result)
+
+@app.route("/resolve_cc_request", methods=["POST"])
+def resolve_cc_request():
+    data = request.get_json()
+
+    cc_request = CCRequest.query.get(data["cc_request_id"])
+    if not cc_request:
+        return jsonify({"error": "Request not found"}), 404
+
+    if cc_request.status != "pending":
+        return jsonify({"error": "This request has already been resolved"}), 400
+
+    cc_request.status = data["decision"]  # "accepted" or "rejected"
+    cc_request.resolved_at = db.func.now()
+
+    if data["decision"] == "accepted":
+        class_obj = Class.query.get(cc_request.class_id)
+        class_obj.cc_faculty_id = cc_request.faculty_id
+
+    db.session.commit()
+
+    return jsonify({"message": f"CC request {data['decision']} successfully!"})
 
 if __name__ == "__main__":
     app.run(debug=True)
