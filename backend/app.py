@@ -83,6 +83,23 @@ class TimetableEntry(db.Model):
     course_id = db.Column(db.Integer, db.ForeignKey('course.course_id'), nullable=True)
     status_color = db.Column(db.String(20), nullable=False, default='normal')
 
+class Leave(db.Model):
+    leave_id = db.Column(db.Integer, primary_key=True)
+    faculty_id = db.Column(db.Integer, db.ForeignKey('faculty.faculty_id'), nullable=False)
+    entry_id = db.Column(db.Integer, db.ForeignKey('timetable_entry.entry_id'), nullable=False)
+    leave_date = db.Column(db.String(20), nullable=False)  # e.g. "2026-07-20"
+    status = db.Column(db.String(20), nullable=False, default='open')  # open/pending_requests/confirmed
+    confirmed_faculty_id = db.Column(db.Integer, db.ForeignKey('faculty.faculty_id'), nullable=True)
+    confirmed_by_role = db.Column(db.String(20), nullable=True)  # 'faculty' or 'cc'
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+
+class CoverRequest(db.Model):
+    cover_req_id = db.Column(db.Integer, primary_key=True)
+    leave_id = db.Column(db.Integer, db.ForeignKey('leave.leave_id'), nullable=False)
+    requesting_faculty_id = db.Column(db.Integer, db.ForeignKey('faculty.faculty_id'), nullable=False)
+    status = db.Column(db.String(20), nullable=False, default='pending')
+    requested_at = db.Column(db.DateTime, server_default=db.func.now())
+
 
 @app.route("/")
 def home():
@@ -366,7 +383,7 @@ def add_timetable_entry():
     db.session.add(new_entry)
     db.session.commit()
     return jsonify({"message": "Timetable entry added!", "entry_id": new_entry.entry_id})
-
+    
 @app.route("/timetable/<int:class_id>", methods=["GET"])
 def get_timetable(class_id):
     entries = TimetableEntry.query.filter_by(class_id=class_id).all()
@@ -374,12 +391,19 @@ def get_timetable(class_id):
     for e in entries:
         course_name = None
         faculty_name = None
+
         if e.course_id:
             course = Course.query.get(e.course_id)
             course_name = course.course_name
             if course.faculty_id:
                 faculty = Faculty.query.get(course.faculty_id)
                 faculty_name = faculty.name
+
+        # Check if this slot has a CONFIRMED leave/substitution
+        confirmed_leave = Leave.query.filter_by(entry_id=e.entry_id, status="confirmed").first()
+        if confirmed_leave and confirmed_leave.confirmed_faculty_id:
+            substitute = Faculty.query.get(confirmed_leave.confirmed_faculty_id)
+            faculty_name = substitute.name  # Override with substitute's name
 
         result.append({
             "entry_id": e.entry_id,
@@ -420,5 +444,89 @@ def get_classes_by_department(college_id, department):
         })
     return jsonify(result)
 
+@app.route("/mark_leave", methods=["POST"])
+def mark_leave():
+    data = request.get_json()
+
+    new_leave = Leave(
+        faculty_id=data["faculty_id"],
+        entry_id=data["entry_id"],
+        leave_date=data["leave_date"]
+    )
+    db.session.add(new_leave)
+    db.session.commit()
+
+    # Highlight the slot as "open" in the timetable
+    entry = TimetableEntry.query.get(data["entry_id"])
+    entry.status_color = "open_leave"
+    db.session.commit()
+
+    return jsonify({"message": "Leave marked and slot highlighted!", "leave_id": new_leave.leave_id})
+
+@app.route("/send_cover_request", methods=["POST"])
+def send_cover_request():
+    data = request.get_json()
+
+    new_cover_req = CoverRequest(
+        leave_id=data["leave_id"],
+        requesting_faculty_id=data["requesting_faculty_id"]
+    )
+    db.session.add(new_cover_req)
+    db.session.commit()
+
+    # Update leave status to show requests are coming in
+    leave = Leave.query.get(data["leave_id"])
+    leave.status = "pending_requests"
+    db.session.commit()
+
+    return jsonify({"message": "Cover request sent!", "cover_req_id": new_cover_req.cover_req_id})
+
+@app.route("/cover_requests/<int:leave_id>", methods=["GET"])
+def get_cover_requests(leave_id):
+    requests = CoverRequest.query.filter_by(leave_id=leave_id, status="pending").all()
+    result = []
+    for r in requests:
+        faculty = Faculty.query.get(r.requesting_faculty_id)
+        result.append({
+            "cover_req_id": r.cover_req_id,
+            "requesting_faculty_id": r.requesting_faculty_id,
+            "faculty_name": faculty.name
+        })
+    return jsonify(result)
+
+@app.route("/confirm_cover_request", methods=["POST"])
+def confirm_cover_request():
+    data = request.get_json()
+
+    leave = Leave.query.get(data["leave_id"])
+    if not leave:
+        return jsonify({"error": "Leave not found"}), 404
+    if leave.status == "confirmed":
+        return jsonify({"error": "This leave slot is already confirmed"}), 400
+
+    chosen_request = CoverRequest.query.get(data["cover_req_id"])
+    chosen_request.status = "accepted"
+
+    # Reject all other pending requests for this same leave
+    other_requests = CoverRequest.query.filter(
+        CoverRequest.leave_id == data["leave_id"],
+        CoverRequest.cover_req_id != data["cover_req_id"]
+    ).all()
+    for r in other_requests:
+        r.status = "rejected"
+
+    # Update the Leave record
+    leave.status = "confirmed"
+    leave.confirmed_faculty_id = chosen_request.requesting_faculty_id
+    leave.confirmed_by_role = data["confirmed_by_role"]  # 'faculty' or 'cc'
+
+    # Update the timetable entry: assign substitute + change color
+    entry = TimetableEntry.query.get(leave.entry_id)
+    entry.status_color = "confirmed_cover"
+
+    db.session.commit()
+
+    return jsonify({"message": "Cover request confirmed successfully!"})
+    
 if __name__ == "__main__":
     app.run(debug=True)
