@@ -100,6 +100,17 @@ class CoverRequest(db.Model):
     status = db.Column(db.String(20), nullable=False, default='pending')
     requested_at = db.Column(db.DateTime, server_default=db.func.now())
 
+class SwapRequest(db.Model):
+    swap_id = db.Column(db.Integer, primary_key=True)
+    requester_faculty_id = db.Column(db.Integer, db.ForeignKey('faculty.faculty_id'), nullable=False)
+    requester_entry_id = db.Column(db.Integer, db.ForeignKey('timetable_entry.entry_id'), nullable=False)
+    target_faculty_id = db.Column(db.Integer, db.ForeignKey('faculty.faculty_id'), nullable=False)
+    target_entry_id = db.Column(db.Integer, db.ForeignKey('timetable_entry.entry_id'), nullable=False)
+    status = db.Column(db.String(20), nullable=False, default='pending')
+    rejection_reason = db.Column(db.String(255), nullable=True)
+    requested_at = db.Column(db.DateTime, server_default=db.func.now())
+    resolved_at = db.Column(db.DateTime, nullable=True)
+
 
 @app.route("/")
 def home():
@@ -398,13 +409,12 @@ def get_timetable(class_id):
             if course.faculty_id:
                 faculty = Faculty.query.get(course.faculty_id)
                 faculty_name = faculty.name
-
         # Check if this slot has a CONFIRMED leave/substitution
-        confirmed_leave = Leave.query.filter_by(entry_id=e.entry_id, status="confirmed").first()
-        if confirmed_leave and confirmed_leave.confirmed_faculty_id:
-            substitute = Faculty.query.get(confirmed_leave.confirmed_faculty_id)
-            faculty_name = substitute.name  # Override with substitute's name
-
+        if course_name:  # only apply substitute override if a course exists in this slot
+            confirmed_leave = Leave.query.filter_by(entry_id=e.entry_id, status="confirmed").first()
+            if confirmed_leave and confirmed_leave.confirmed_faculty_id:
+                substitute = Faculty.query.get(confirmed_leave.confirmed_faculty_id)
+                faculty_name = substitute.name
         result.append({
             "entry_id": e.entry_id,
             "day_of_week": e.day_of_week,
@@ -527,6 +537,66 @@ def confirm_cover_request():
     db.session.commit()
 
     return jsonify({"message": "Cover request confirmed successfully!"})
+
+@app.route("/send_swap_request", methods=["POST"])
+def send_swap_request():
+    data = request.get_json()
+
+    new_swap = SwapRequest(
+        requester_faculty_id=data["requester_faculty_id"],
+        requester_entry_id=data["requester_entry_id"],
+        target_faculty_id=data["target_faculty_id"],
+        target_entry_id=data["target_entry_id"]
+    )
+    db.session.add(new_swap)
+    db.session.commit()
+
+    return jsonify({"message": "Swap request sent!", "swap_id": new_swap.swap_id})
+
+@app.route("/swap_requests/<int:target_faculty_id>", methods=["GET"])
+def get_swap_requests(target_faculty_id):
+    requests = SwapRequest.query.filter_by(target_faculty_id=target_faculty_id, status="pending").all()
+    result = []
+    for r in requests:
+        requester = Faculty.query.get(r.requester_faculty_id)
+        requester_entry = TimetableEntry.query.get(r.requester_entry_id)
+        target_entry = TimetableEntry.query.get(r.target_entry_id)
+        result.append({
+            "swap_id": r.swap_id,
+            "requester_name": requester.name,
+            "requester_slot": f"{requester_entry.day_of_week} Period {requester_entry.period_no}",
+            "target_slot": f"{target_entry.day_of_week} Period {target_entry.period_no}"
+        })
+    return jsonify(result)
+
+@app.route("/resolve_swap_request", methods=["POST"])
+def resolve_swap_request():
+    data = request.get_json()
+
+    swap = SwapRequest.query.get(data["swap_id"])
+    if not swap:
+        return jsonify({"error": "Swap request not found"}), 404
+    if swap.status != "pending":
+        return jsonify({"error": "This request has already been resolved"}), 400
+
+    swap.status = data["decision"]
+    swap.resolved_at = db.func.now()
+    swap.rejection_reason = data.get("rejection_reason", "")
+
+    if data["decision"] == "accepted":
+        requester_entry = TimetableEntry.query.get(swap.requester_entry_id)
+        target_entry = TimetableEntry.query.get(swap.target_entry_id)
+
+        # Swap the courses between the two slots
+        requester_entry.course_id, target_entry.course_id = target_entry.course_id, requester_entry.course_id
+        requester_entry.status_color = "swapped"
+        target_entry.status_color = "swapped"
+
+    db.session.commit()
+
+    return jsonify({"message": f"Swap request {data['decision']} successfully!"})
+
+
     
 if __name__ == "__main__":
     app.run(debug=True)
