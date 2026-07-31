@@ -596,6 +596,40 @@ def resolve_swap_request():
 
     return jsonify({"message": f"Swap request {data['decision']} successfully!"})
 
+@app.route("/mark_day_leave", methods=["POST"])
+def mark_day_leave():
+    data = request.get_json()
+    faculty_id = data["faculty_id"]
+    leave_date = data["leave_date"]
+    day_of_week = data["day_of_week"]  # e.g. "MON"
+
+    # Find all timetable entries where this faculty teaches, on that day
+    entries = db.session.query(TimetableEntry).join(Course).filter(
+        Course.faculty_id == faculty_id,
+        TimetableEntry.day_of_week == day_of_week
+    ).all()
+
+    if not entries:
+        return jsonify({"message": "No classes found for this faculty on that day"}), 200
+
+    created_leaves = []
+    for entry in entries:
+        new_leave = Leave(
+            faculty_id=faculty_id,
+            entry_id=entry.entry_id,
+            leave_date=leave_date
+        )
+        db.session.add(new_leave)
+        entry.status_color = "open_leave"
+        created_leaves.append(entry.entry_id)
+
+    db.session.commit()
+
+    return jsonify({
+        "message": f"Leave marked for {len(created_leaves)} period(s)",
+        "affected_entries": created_leaves
+    })
+
 
     
 if __name__ == "__main__":
