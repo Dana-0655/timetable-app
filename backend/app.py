@@ -41,6 +41,7 @@ class Faculty(db.Model):
 class Class(db.Model):
     class_id = db.Column(db.Integer, primary_key=True)
     college_id = db.Column(db.Integer, db.ForeignKey('college.college_id'), nullable=False)
+    semester_id = db.Column(db.Integer, db.ForeignKey('semester.semester_id'), nullable=True)
     year = db.Column(db.String(20), nullable=False)
     section = db.Column(db.String(10), nullable=False)
     department = db.Column(db.String(100), nullable=False)
@@ -121,6 +122,15 @@ class Notification(db.Model):
     sent_to_faculty = db.Column(db.Boolean, default=False)
     sent_to_cc = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, server_default=db.func.now())
+
+class Semester(db.Model):
+    semester_id = db.Column(db.Integer, primary_key=True)
+    college_id = db.Column(db.Integer, db.ForeignKey('college.college_id'), nullable=False)
+    semester_name = db.Column(db.String(50), nullable=False)
+    is_active = db.Column(db.Boolean, default=False)
+    is_deleted = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+
 
 def check_pending_leaves():
     with app.app_context():
@@ -279,25 +289,6 @@ def login_faculty():
         })
     else:
         return jsonify({"error": "Incorrect password"}), 401
-
-@app.route("/add_class", methods=["POST"])
-def add_class():
-    data = request.get_json()
-
-    admin = Admin.query.filter_by(admin_id=data["admin_id"]).first()
-    if not admin:
-        return jsonify({"error": "Invalid admin"}), 400
-
-    new_class = Class(
-        college_id=admin.college_id,
-        year=data["year"],
-        section=data["section"],
-        department=data["department"]
-    )
-    db.session.add(new_class)
-    db.session.commit()
-
-    return jsonify({"message": "Class created successfully!", "class_id": new_class.class_id})
 
 @app.route("/classes/<int:college_id>", methods=["GET"])
 def get_classes(college_id):
@@ -682,6 +673,82 @@ def mark_day_leave():
         "message": f"Leave marked for {len(created_leaves)} period(s)",
         "affected_entries": created_leaves
     })
+
+@app.route("/create_semester", methods=["POST"])
+def create_semester():
+    data = request.get_json()
+
+    # Deactivate all other semesters for this college (only one active at a time)
+    Semester.query.filter_by(college_id=data["college_id"]).update({"is_active": False})
+
+    new_semester = Semester(
+        college_id=data["college_id"],
+        semester_name=data["semester_name"],
+        is_active=True
+    )
+    db.session.add(new_semester)
+    db.session.commit()
+
+    return jsonify({"message": "New semester created and activated!", "semester_id": new_semester.semester_id})
+
+@app.route("/semesters/<int:college_id>", methods=["GET"])
+def get_semesters(college_id):
+    semesters = Semester.query.filter_by(college_id=college_id, is_deleted=False).all()
+    result = []
+    for s in semesters:
+        result.append({
+            "semester_id": s.semester_id,
+            "semester_name": s.semester_name,
+            "is_active": s.is_active
+        })
+    return jsonify(result)
+
+@app.route("/switch_semester", methods=["POST"])
+def switch_semester():
+    data = request.get_json()
+
+    Semester.query.filter_by(college_id=data["college_id"]).update({"is_active": False})
+
+    semester = Semester.query.get(data["semester_id"])
+    semester.is_active = True
+    db.session.commit()
+
+    return jsonify({"message": f"Switched to {semester.semester_name}"})
+
+@app.route("/delete_semester", methods=["POST"])
+def delete_semester():
+    data = request.get_json()
+
+    semester = Semester.query.get(data["semester_id"])
+    if not semester:
+        return jsonify({"error": "Semester not found"}), 404
+
+    semester.is_deleted = True
+    db.session.commit()
+
+    return jsonify({"message": f"{semester.semester_name} deleted (soft delete)"})
+@app.route("/add_class", methods=["POST"])
+def add_class():
+    data = request.get_json()
+
+    admin = Admin.query.filter_by(admin_id=data["admin_id"]).first()
+    if not admin:
+        return jsonify({"error": "Invalid admin"}), 400
+
+    active_semester = Semester.query.filter_by(college_id=admin.college_id, is_active=True).first()
+
+    new_class = Class(
+        college_id=admin.college_id,
+        semester_id=active_semester.semester_id if active_semester else None,
+        year=data["year"],
+        section=data["section"],
+        department=data["department"]
+    )
+    db.session.add(new_class)
+    db.session.commit()
+
+    return jsonify({"message": "Class created successfully!", "class_id": new_class.class_id})
+    
 
 if os.environ.get('WERKZEUG_RUN_MAIN') == 'true' or not app.debug:
     scheduler = BackgroundScheduler()
