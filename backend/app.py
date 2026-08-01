@@ -1,6 +1,10 @@
+import os
 from flask import Flask, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from flask_bcrypt import Bcrypt
+from apscheduler.schedulers.background import BackgroundScheduler
+from datetime import datetime, timedelta
+
 
 app = Flask(__name__)
 
@@ -111,6 +115,55 @@ class SwapRequest(db.Model):
     requested_at = db.Column(db.DateTime, server_default=db.func.now())
     resolved_at = db.Column(db.DateTime, nullable=True)
 
+class Notification(db.Model):
+    notification_id = db.Column(db.Integer, primary_key=True)
+    leave_id = db.Column(db.Integer, db.ForeignKey('leave.leave_id'), nullable=False)
+    sent_to_faculty = db.Column(db.Boolean, default=False)
+    sent_to_cc = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+
+def check_pending_leaves():
+    with app.app_context():
+        pending_leaves = Leave.query.filter(Leave.status != "confirmed").all()
+        print(f"[DEBUG] Scheduler ran. Found {len(pending_leaves)} pending leave(s).")
+
+        for leave in pending_leaves:
+            already_notified = Notification.query.filter_by(leave_id=leave.leave_id).first()
+            if already_notified:
+                print(f"[DEBUG] Leave {leave.leave_id} already notified, skipping.")
+                continue
+
+            entry = TimetableEntry.query.get(leave.entry_id)
+            config = TimetableConfig.query.filter_by(class_id=entry.class_id).first()
+
+            if not config:
+                print(f"[DEBUG] No config found for class_id {entry.class_id}")
+                continue
+
+            leave_date_obj = datetime.strptime(leave.leave_date, "%Y-%m-%d")
+            start_hour, start_minute = map(int, config.start_time.split(":"))
+            minutes_to_add = (entry.period_no - 1) * config.period_duration_minutes
+            class_datetime = leave_date_obj.replace(hour=start_hour, minute=start_minute) + timedelta(minutes=minutes_to_add)
+
+            now = datetime.now()
+            reminder_time = class_datetime - timedelta(hours=3)
+
+            print(f"[DEBUG] now={now}, reminder_time={reminder_time}, class_datetime={class_datetime}")
+
+            if now >= reminder_time and now < class_datetime:
+                faculty = Faculty.query.get(leave.faculty_id)
+                print(f"[REMINDER] Faculty {faculty.name}: You haven't assigned anyone for {entry.day_of_week} Period {entry.period_no} at {class_datetime.strftime('%H:%M')}.")
+                print(f"[REMINDER TO CC] {faculty.name} is on leave and hasn't assigned a substitute for {entry.day_of_week} Period {entry.period_no}. Class starts at {class_datetime.strftime('%H:%M')}.")
+
+                new_notification = Notification(
+                    leave_id=leave.leave_id,
+                    sent_to_faculty=True,
+                    sent_to_cc=True
+                )
+                db.session.add(new_notification)
+                db.session.commit()
+            else:
+                print(f"[DEBUG] Not in reminder window yet.")
 
 @app.route("/")
 def home():
@@ -630,7 +683,10 @@ def mark_day_leave():
         "affected_entries": created_leaves
     })
 
-
+if os.environ.get('WERKZEUG_RUN_MAIN') == 'true' or not app.debug:
+    scheduler = BackgroundScheduler()
+    scheduler.add_job(check_pending_leaves, 'interval', minutes=1)
+    scheduler.start()
     
 if __name__ == "__main__":
     app.run(debug=True)
