@@ -1,11 +1,16 @@
 import 'package:flutter/material.dart';
-import 'package:frontend/faculty_login_screen.dart';
 import 'admin_login_screen.dart';
 import 'faculty_login_screen.dart';
+import 'student_department_screen.dart';
 
 class RoleSelectionScreen extends StatefulWidget {
   final String collegeCode;
-  const RoleSelectionScreen({super.key, required this.collegeCode});
+  final int collegeId;
+  const RoleSelectionScreen({
+    super.key,
+    required this.collegeCode,
+    required this.collegeId,
+  });
 
   @override
   State<RoleSelectionScreen> createState() => _RoleSelectionScreenState();
@@ -83,6 +88,15 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen> {
                             context,
                             MaterialPageRoute(
                               builder: (context) => const FacultyLoginScreen(),
+                            ),
+                          );
+                        } else if (role.label == 'Student') {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => StudentDepartmentScreen(
+                                collegeId: widget.collegeId,
+                              ),
                             ),
                           );
                         }

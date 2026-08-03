@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'dart:convert';
 import 'role_selection_screen.dart';
 
 void main() {
@@ -44,10 +45,14 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
       final response = await http.get(url);
 
       if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (context) => RoleSelectionScreen(collegeCode: code),
+            builder: (context) => RoleSelectionScreen(
+              collegeCode: code,
+              collegeId: data['college_id'],
+            ),
           ),
         );
       } else {
