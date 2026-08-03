@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/faculty_login_screen.dart';
 import 'admin_login_screen.dart';
+import 'faculty_login_screen.dart';
 
 class RoleSelectionScreen extends StatefulWidget {
   final String collegeCode;
@@ -76,8 +78,14 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen> {
                               builder: (context) => const AdminLoginScreen(),
                             ),
                           );
+                        } else if (role.label == 'Faculty') {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => const FacultyLoginScreen(),
+                            ),
+                          );
                         }
-                        // TODO: Faculty and Student navigation
                       },
                       child: AnimatedScale(
                         scale: _pressedIndex == index ? 0.97 : 1.0,
