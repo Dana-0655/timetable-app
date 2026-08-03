@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'role_selection_screen.dart';
 
 void main() {
@@ -27,6 +28,43 @@ class WelcomeScreen extends StatefulWidget {
 
 class _WelcomeScreenState extends State<WelcomeScreen> {
   final TextEditingController _codeController = TextEditingController();
+  String? _errorMessage;
+  bool _isLoading = false;
+
+  Future<void> _verifyCode() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    final code = _codeController.text.trim();
+    final url = Uri.parse('http://127.0.0.1:5000/verify_college_code/$code');
+
+    try {
+      final response = await http.get(url);
+
+      if (response.statusCode == 200) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => RoleSelectionScreen(collegeCode: code),
+          ),
+        );
+      } else {
+        setState(() {
+          _errorMessage = 'Invalid college code. Please try again.';
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _errorMessage = 'Could not connect to server.';
+      });
+    }
+
+    setState(() {
+      _isLoading = false;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -49,20 +87,17 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                   border: OutlineInputBorder(),
                 ),
               ),
+              if (_errorMessage != null) ...[
+                const SizedBox(height: 8),
+                Text(_errorMessage!, style: const TextStyle(color: Colors.red)),
+              ],
               const SizedBox(height: 16),
-              ElevatedButton(
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => RoleSelectionScreen(
-                        collegeCode: _codeController.text,
-                      ),
+              _isLoading
+                  ? const CircularProgressIndicator()
+                  : ElevatedButton(
+                      onPressed: _verifyCode,
+                      child: const Text('Continue'),
                     ),
-                  );
-                },
-                child: const Text('Continue'),
-              ),
             ],
           ),
         ),

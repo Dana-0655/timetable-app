@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'admin_login_screen.dart';
 
 class RoleSelectionScreen extends StatefulWidget {
   final String collegeCode;
@@ -68,7 +69,15 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen> {
                       onTapUp: (_) => setState(() => _pressedIndex = null),
                       onTapCancel: () => setState(() => _pressedIndex = null),
                       onTap: () {
-                        // TODO: navigate to the respective dashboard
+                        if (role.label == 'Admin') {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => const AdminLoginScreen(),
+                            ),
+                          );
+                        }
+                        // TODO: Faculty and Student navigation
                       },
                       child: AnimatedScale(
                         scale: _pressedIndex == index ? 0.97 : 1.0,
