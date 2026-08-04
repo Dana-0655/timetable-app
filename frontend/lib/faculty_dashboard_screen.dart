@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'faculty_class_courses_screen.dart';
 
 class FacultyDashboardScreen extends StatefulWidget {
   final int facultyId;
@@ -105,6 +106,17 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
                                         _sendCCRequest(cls['class_id']),
                                     child: const Text('Request CC'),
                                   ),
+                            onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => FacultyClassCoursesScreen(
+                                  classId: cls['class_id'],
+                                  className:
+                                      '${cls['year']} - ${cls['section']}',
+                                  facultyId: widget.facultyId,
+                                ),
+                              ),
+                            ),
                           ),
                         );
                       },
