@@ -3,6 +3,8 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'faculty_class_courses_screen.dart';
 import 'faculty_my_schedule_screen.dart';
+import 'faculty_open_slots_screen.dart';
+import 'faculty_pending_leaves_screen.dart';
 
 class FacultyDashboardScreen extends StatefulWidget {
   final int facultyId;
@@ -83,6 +85,32 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
               context,
               MaterialPageRoute(
                 builder: (context) => FacultyMyScheduleScreen(
+                  facultyId: widget.facultyId,
+                  collegeId: widget.collegeId,
+                ),
+              ),
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.pending_actions),
+            tooltip: 'My Leave Requests',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => FacultyPendingLeavesScreen(
+                  facultyId: widget.facultyId,
+                  collegeId: widget.collegeId,
+                ),
+              ),
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.event_available),
+            tooltip: 'Open Slots',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => FacultyOpenSlotsScreen(
                   facultyId: widget.facultyId,
                   collegeId: widget.collegeId,
                 ),

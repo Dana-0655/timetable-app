@@ -757,6 +757,13 @@ if os.environ.get('WERKZEUG_RUN_MAIN') == 'true' or not app.debug:
     scheduler = BackgroundScheduler()
     scheduler.add_job(check_pending_leaves, 'interval', minutes=1)
     scheduler.start()
+
+@app.route("/leave_by_entry/<int:entry_id>", methods=["GET"])
+def get_leave_by_entry(entry_id):
+    leave = Leave.query.filter_by(entry_id=entry_id).filter(Leave.status != "confirmed").first()
+    if not leave:
+        return jsonify({"error": "No active leave found for this entry"}), 404
+    return jsonify({"leave_id": leave.leave_id})
     
 if __name__ == "__main__":
     app.run(debug=True)
