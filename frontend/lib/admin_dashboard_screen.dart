@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'class_courses_screen.dart';
+import 'semester_management_screen.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
   final int adminId;
@@ -205,7 +206,22 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('Welcome, ${widget.adminName}')),
+      appBar: AppBar(
+        title: Text('Welcome, ${widget.adminName}'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.calendar_month),
+            tooltip: 'Manage Semesters',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) =>
+                    SemesterManagementScreen(collegeId: widget.collegeId),
+              ),
+            ),
+          ),
+        ],
+      ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _classes.isEmpty
