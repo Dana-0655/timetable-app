@@ -28,6 +28,91 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     _fetchClasses();
   }
 
+  Future<void> _showPendingRequests(int classId, String className) async {
+    final url = Uri.parse('http://127.0.0.1:5000/cc_requests/$classId');
+
+    try {
+      final response = await http.get(url);
+      final List<dynamic> requests = jsonDecode(response.body);
+
+      if (!mounted) return;
+
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text('Pending CC Requests - $className'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: requests.isEmpty
+                ? const Text('No pending requests.')
+                : ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: requests.length,
+                    itemBuilder: (context, index) {
+                      final req = requests[index];
+                      return ListTile(
+                        title: Text(req['faculty_name']),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              icon: const Icon(
+                                Icons.check,
+                                color: Colors.green,
+                              ),
+                              onPressed: () async {
+                                await _resolveCCRequest(
+                                  req['cc_request_id'],
+                                  'accepted',
+                                );
+                                Navigator.pop(context);
+                              },
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.close, color: Colors.red),
+                              onPressed: () async {
+                                await _resolveCCRequest(
+                                  req['cc_request_id'],
+                                  'rejected',
+                                );
+                                Navigator.pop(context);
+                              },
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Close'),
+            ),
+          ],
+        ),
+      );
+    } catch (e) {
+      // Silently fail for now
+    }
+  }
+
+  Future<void> _resolveCCRequest(int ccRequestId, String decision) async {
+    final url = Uri.parse('http://127.0.0.1:5000/resolve_cc_request');
+    try {
+      final response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'cc_request_id': ccRequestId, 'decision': decision}),
+      );
+      if (response.statusCode == 200) {
+        _fetchClasses(); // Refresh the class list to show updated CC status
+      }
+    } catch (e) {
+      // Silently fail for now
+    }
+  }
+
   Future<void> _fetchClasses() async {
     setState(() => _isLoading = true);
     final url = Uri.parse('http://127.0.0.1:5000/classes/${widget.collegeId}');
@@ -139,6 +224,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                       backgroundColor: hasCC
                           ? Colors.green.shade100
                           : Colors.orange.shade100,
+                    ),
+                    onTap: () => _showPendingRequests(
+                      cls['class_id'],
+                      '${cls['year']} - ${cls['section']}',
                     ),
                   ),
                 );

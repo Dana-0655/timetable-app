@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'faculty_dashboard_screen.dart';
 
 class FacultyLoginScreen extends StatefulWidget {
   const FacultyLoginScreen({super.key});
@@ -37,10 +38,16 @@ class _FacultyLoginScreenState extends State<FacultyLoginScreen> {
       final data = jsonDecode(response.body);
 
       if (response.statusCode == 200) {
-        ScaffoldMessenger.of(
+        Navigator.pushReplacement(
           context,
-        ).showSnackBar(SnackBar(content: Text('Welcome, ${data['name']}!')));
-        // TODO: Navigate to Faculty Dashboard
+          MaterialPageRoute(
+            builder: (context) => FacultyDashboardScreen(
+              facultyId: data['faculty_id'],
+              facultyName: data['name'],
+              collegeId: data['college_id'],
+            ),
+          ),
+        );
       } else {
         setState(() {
           _errorMessage = data['error'] ?? 'Login failed';
