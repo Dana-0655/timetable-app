@@ -460,14 +460,16 @@ def get_timetable(class_id):
             if confirmed_leave and confirmed_leave.confirmed_faculty_id:
                 substitute = Faculty.query.get(confirmed_leave.confirmed_faculty_id)
                 faculty_name = substitute.name
-        result.append({
-            "entry_id": e.entry_id,
-            "day_of_week": e.day_of_week,
-            "period_no": e.period_no,
-            "course_name": course_name,
-            "faculty_name": faculty_name,
-            "status_color": e.status_color
-        })
+            result.append({
+                "entry_id": e.entry_id,
+                "day_of_week": e.day_of_week,
+                "period_no": e.period_no,
+                "course_id": e.course_id,
+                "course_name": course_name,
+                "faculty_name": faculty_name,
+                "status_color": e.status_color
+            })
+    
     return jsonify(result)
 
 @app.route("/verify_college_code/<string:code>", methods=["GET"])

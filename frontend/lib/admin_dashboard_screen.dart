@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'class_courses_screen.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
   final int adminId;
@@ -219,11 +220,28 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                   child: ListTile(
                     title: Text('${cls['year']} - Section ${cls['section']}'),
                     subtitle: Text(cls['department']),
-                    trailing: Chip(
-                      label: Text(hasCC ? 'CC Assigned' : 'Unassigned'),
-                      backgroundColor: hasCC
-                          ? Colors.green.shade100
-                          : Colors.orange.shade100,
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Chip(
+                          label: Text(hasCC ? 'CC Assigned' : 'Unassigned'),
+                          backgroundColor: hasCC
+                              ? Colors.green.shade100
+                              : Colors.orange.shade100,
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.menu_book),
+                          onPressed: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => ClassCoursesScreen(
+                                classId: cls['class_id'],
+                                className: '${cls['year']} - ${cls['section']}',
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                     onTap: () => _showPendingRequests(
                       cls['class_id'],
