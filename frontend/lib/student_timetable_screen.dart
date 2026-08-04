@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'dart:async';
 
 class StudentTimetableScreen extends StatefulWidget {
   final int classId;
@@ -19,11 +20,21 @@ class _StudentTimetableScreenState extends State<StudentTimetableScreen> {
   List<dynamic> _entries = [];
   bool _isLoading = true;
   String? _errorMessage;
+  Timer? _refreshTimer;
 
   @override
   void initState() {
     super.initState();
     _fetchTimetable();
+    _refreshTimer = Timer.periodic(const Duration(seconds: 15), (timer) {
+      _fetchTimetable();
+    });
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _fetchTimetable() async {

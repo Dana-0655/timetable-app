@@ -5,6 +5,9 @@ import 'faculty_class_courses_screen.dart';
 import 'faculty_my_schedule_screen.dart';
 import 'faculty_open_slots_screen.dart';
 import 'faculty_pending_leaves_screen.dart';
+import 'faculty_swap_request_screen.dart';
+import 'faculty_swap_responses_screen.dart';
+import 'browse_timetables_screen.dart';
 
 class FacultyDashboardScreen extends StatefulWidget {
   final int facultyId;
@@ -88,6 +91,30 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
                   facultyId: widget.facultyId,
                   collegeId: widget.collegeId,
                 ),
+              ),
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.calendar_view_week),
+            tooltip: 'Browse Timetables / Swap',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => BrowseTimetablesScreen(
+                  facultyId: widget.facultyId,
+                  collegeId: widget.collegeId,
+                ),
+              ),
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.inbox),
+            tooltip: 'Swap Responses',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) =>
+                    FacultySwapResponsesScreen(facultyId: widget.facultyId),
               ),
             ),
           ),

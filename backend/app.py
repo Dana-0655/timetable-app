@@ -447,6 +447,7 @@ def get_timetable(class_id):
     for e in entries:
         course_name = None
         faculty_name = None
+        faculty_id_result = None
 
         if e.course_id:
             course = Course.query.get(e.course_id)
@@ -454,22 +455,27 @@ def get_timetable(class_id):
             if course.faculty_id:
                 faculty = Faculty.query.get(course.faculty_id)
                 faculty_name = faculty.name
+                faculty_id_result = faculty.faculty_id
+
         # Check if this slot has a CONFIRMED leave/substitution
-        if course_name:  # only apply substitute override if a course exists in this slot
+        if course_name:
             confirmed_leave = Leave.query.filter_by(entry_id=e.entry_id, status="confirmed").first()
             if confirmed_leave and confirmed_leave.confirmed_faculty_id:
                 substitute = Faculty.query.get(confirmed_leave.confirmed_faculty_id)
                 faculty_name = substitute.name
-            result.append({
-                "entry_id": e.entry_id,
-                "day_of_week": e.day_of_week,
-                "period_no": e.period_no,
-                "course_id": e.course_id,
-                "course_name": course_name,
-                "faculty_name": faculty_name,
-                "status_color": e.status_color
-            })
-    
+                faculty_id_result = substitute.faculty_id
+
+        result.append({
+            "entry_id": e.entry_id,
+            "day_of_week": e.day_of_week,
+            "period_no": e.period_no,
+            "course_id": e.course_id,
+            "course_name": course_name,
+            "faculty_name": faculty_name,
+            "faculty_id": faculty_id_result,
+            "status_color": e.status_color
+        })
+
     return jsonify(result)
 
 @app.route("/verify_college_code/<string:code>", methods=["GET"])
