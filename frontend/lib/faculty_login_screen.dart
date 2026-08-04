@@ -18,12 +18,20 @@ class _FacultyLoginScreenState extends State<FacultyLoginScreen> {
   bool _obscurePassword = true;
 
   Future<void> _login() async {
+    if (_emailController.text.trim().isEmpty ||
+        _passwordController.text.isEmpty) {
+      setState(() {
+        _errorMessage = 'Please enter both email and password.';
+      });
+      return;
+    }
+
     setState(() {
       _isLoading = true;
       _errorMessage = null;
     });
 
-    final url = Uri.parse('http://127.0.0.1:5000/login_faculty');
+    final url = Uri.parse('http://127.0.0.1:5000/login_admin');
 
     try {
       final response = await http.post(

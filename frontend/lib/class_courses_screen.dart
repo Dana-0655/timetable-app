@@ -70,6 +70,15 @@ class _ClassCoursesScreenState extends State<ClassCoursesScreen> {
   }
 
   Future<void> _addCourse(String courseName) async {
+    if (courseName.trim().isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please enter a course name.')),
+        );
+      }
+      return;
+    }
+
     final url = Uri.parse('http://127.0.0.1:5000/add_course');
     try {
       final response = await http.post(

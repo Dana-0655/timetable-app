@@ -744,21 +744,41 @@ def add_class():
     if not admin:
         return jsonify({"error": "Invalid admin"}), 400
 
+    # Check for duplicate class (same year + section + department in this college)
+    existing = Class.query.filter_by(
+        college_id=admin.college_id,
+        year=data["year"].strip(),
+        section=data["section"].strip(),
+        department=data["department"].strip()
+    ).first()
+    if existing:
+        return jsonify({"error": "This class already exists"}), 400
+
     active_semester = Semester.query.filter_by(college_id=admin.college_id, is_active=True).first()
 
     new_class = Class(
         college_id=admin.college_id,
         semester_id=active_semester.semester_id if active_semester else None,
-        year=data["year"],
-        section=data["section"],
-        department=data["department"]
+        year=data["year"].strip(),
+        section=data["section"].strip(),
+        department=data["department"].strip()
     )
     db.session.add(new_class)
     db.session.commit()
 
     return jsonify({"message": "Class created successfully!", "class_id": new_class.class_id})
-    
 
+@app.route("/delete_class", methods=["POST"])
+def delete_class():
+    data = request.get_json()
+    class_obj = Class.query.get(data["class_id"])
+    if not class_obj:
+        return jsonify({"error": "Class not found"}), 404
+
+    db.session.delete(class_obj)
+    db.session.commit()
+    return jsonify({"message": "Class deleted successfully!"})
+    
 if os.environ.get('WERKZEUG_RUN_MAIN') == 'true' or not app.debug:
     scheduler = BackgroundScheduler()
     scheduler.add_job(check_pending_leaves, 'interval', minutes=1)

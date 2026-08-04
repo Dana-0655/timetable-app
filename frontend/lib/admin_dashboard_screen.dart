@@ -30,6 +30,48 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     _fetchClasses();
   }
 
+  void _confirmDeleteClass(int classId, String className) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Class'),
+        content: Text(
+          'Are you sure you want to delete "$className"? This cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () async {
+              Navigator.pop(context);
+              await _deleteClass(classId);
+            },
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _deleteClass(int classId) async {
+    final url = Uri.parse('http://127.0.0.1:5000/delete_class');
+    try {
+      final response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'class_id': classId}),
+      );
+      if (response.statusCode == 200) {
+        _fetchClasses();
+      }
+    } catch (e) {
+      // Silently fail for now
+    }
+  }
+
   Future<void> _showPendingRequests(int classId, String className) async {
     final url = Uri.parse('http://127.0.0.1:5000/cc_requests/$classId');
 
@@ -183,6 +225,17 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   }
 
   Future<void> _addClass(String year, String section, String department) async {
+    if (year.trim().isEmpty ||
+        section.trim().isEmpty ||
+        department.trim().isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please fill in all fields.')),
+        );
+      }
+      return;
+    }
+
     final url = Uri.parse('http://127.0.0.1:5000/add_class');
     try {
       final response = await http.post(
@@ -195,11 +248,22 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           'department': department,
         }),
       );
+      final data = jsonDecode(response.body);
       if (response.statusCode == 200) {
-        _fetchClasses(); // Refresh the list
+        _fetchClasses();
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(data['error'] ?? 'Could not add class.')),
+          );
+        }
       }
     } catch (e) {
-      // Silently fail for now; could add error handling later
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not connect to server.')),
+        );
+      }
     }
   }
 
@@ -255,6 +319,13 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                                 className: '${cls['year']} - ${cls['section']}',
                               ),
                             ),
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.delete, color: Colors.red),
+                          onPressed: () => _confirmDeleteClass(
+                            cls['class_id'],
+                            '${cls['year']} - ${cls['section']}',
                           ),
                         ),
                       ],
