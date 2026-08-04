@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'faculty_class_courses_screen.dart';
+import 'faculty_my_schedule_screen.dart';
 
 class FacultyDashboardScreen extends StatefulWidget {
   final int facultyId;
@@ -72,7 +73,24 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('Welcome, ${widget.facultyName}')),
+      appBar: AppBar(
+        title: Text('Welcome, ${widget.facultyName}'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.schedule),
+            tooltip: 'My Schedule',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => FacultyMyScheduleScreen(
+                  facultyId: widget.facultyId,
+                  collegeId: widget.collegeId,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _classes.isEmpty
