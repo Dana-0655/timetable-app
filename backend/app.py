@@ -760,21 +760,37 @@ def add_class():
     if not admin:
         return jsonify({"error": "Invalid admin"}), 400
 
-    # Check for duplicate class (same year + section + department in this college)
+    active_semester = Semester.query.filter_by(college_id=admin.college_id, is_active=True).first()
+
+    if not active_semester:
+        return jsonify({"error": "Please create a semester first before adding classes"}), 400
+
+    # Check for duplicate class WITHIN THE SAME SEMESTER ONLY
     existing = Class.query.filter_by(
         college_id=admin.college_id,
+        semester_id=active_semester.semester_id,
         year=data["year"].strip(),
         section=data["section"].strip(),
         department=data["department"].strip()
     ).first()
     if existing:
-        return jsonify({"error": "This class already exists"}), 400
-
-    active_semester = Semester.query.filter_by(college_id=admin.college_id, is_active=True).first()
+        return jsonify({"error": "This class already exists in the current semester"}), 400
 
     new_class = Class(
         college_id=admin.college_id,
-        semester_id=active_semester.semester_id if active_semester else None,
+        semester_id=active_semester.semester_id,
+        year=data["year"].strip(),
+        section=data["section"].strip(),
+        department=data["department"].strip()
+    )
+    db.session.add(new_class)
+    db.session.commit()
+
+    return jsonify({"message": "Class created successfully!", "class_id": new_class.class_id})
+
+    new_class = Class(
+        college_id=admin.college_id,
+        semester_id=active_semester.semester_id,
         year=data["year"].strip(),
         section=data["section"].strip(),
         department=data["department"].strip()
@@ -1024,6 +1040,34 @@ def delete_day_schedule():
 
     db.session.commit()
     return jsonify({"message": f"{day_of_week} schedule deleted successfully!"})
+
+@app.route("/admin_invite_cc", methods=["POST"])
+def admin_invite_cc():
+    data = request.get_json()
+
+    new_request = CCRequest(
+        class_id=data["class_id"],
+        faculty_id=data["faculty_id"],
+        initiated_by="admin",
+        status="pending"
+    )
+    db.session.add(new_request)
+    db.session.commit()
+
+    return jsonify({"message": "Invitation sent to faculty!", "request_id": new_request.cc_request_id})
+
+@app.route("/faculty_cc_invites/<int:faculty_id>", methods=["GET"])
+def get_faculty_cc_invites(faculty_id):
+    requests = CCRequest.query.filter_by(faculty_id=faculty_id, status="pending", initiated_by="admin").all()
+    result = []
+    for r in requests:
+        class_obj = Class.query.get(r.class_id)
+        result.append({
+            "cc_request_id": r.cc_request_id,
+            "class_id": r.class_id,
+            "class_name": f"{class_obj.year} - {class_obj.section}"
+        })
+    return jsonify(result)
 
 
 if os.environ.get('WERKZEUG_RUN_MAIN') == 'true' or not app.debug:

@@ -28,11 +28,82 @@ class AdminDashboardScreen extends StatefulWidget {
 class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   List<dynamic> _classes = [];
   bool _isLoading = true;
+  bool _hasActiveSemester = true;
 
   @override
   void initState() {
     super.initState();
     _fetchClasses();
+  }
+
+  Future<void> _showInviteFacultyDialog(int classId) async {
+    final url = Uri.parse(
+      'http://127.0.0.1:5000/faculty_list/${widget.collegeId}',
+    );
+    try {
+      final response = await http.get(url);
+      final List<dynamic> facultyList = jsonDecode(response.body);
+
+      if (!mounted) return;
+
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Invite Faculty as CC'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: facultyList.isEmpty
+                ? const Text('No faculty available.')
+                : ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: facultyList.length,
+                    itemBuilder: (context, index) {
+                      final f = facultyList[index];
+                      return ListTile(
+                        title: Text(f['name']),
+                        subtitle: Text(f['email']),
+                        trailing: ElevatedButton(
+                          onPressed: () async {
+                            Navigator.pop(context);
+                            await _inviteCC(classId, f['faculty_id']);
+                          },
+                          child: const Text('Invite'),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+          ],
+        ),
+      );
+    } catch (e) {
+      // Silently fail for now
+    }
+  }
+
+  Future<void> _inviteCC(int classId, int facultyId) async {
+    final url = Uri.parse('http://127.0.0.1:5000/admin_invite_cc');
+    try {
+      final response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'class_id': classId, 'faculty_id': facultyId}),
+      );
+      if (response.statusCode == 200) {
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('Invitation sent!')));
+        }
+      }
+    } catch (e) {
+      // Silently fail for now
+    }
   }
 
   Future<void> _logout() async {
@@ -175,6 +246,22 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
   Future<void> _fetchClasses() async {
     setState(() => _isLoading = true);
+
+    // Check for active semester first
+    final semUrl = Uri.parse(
+      'http://127.0.0.1:5000/semesters/${widget.collegeId}',
+    );
+    try {
+      final semResponse = await http.get(semUrl);
+      if (semResponse.statusCode == 200) {
+        final List<dynamic> semesters = jsonDecode(semResponse.body);
+        final hasActive = semesters.any((s) => s['is_active'] == true);
+        setState(() => _hasActiveSemester = hasActive);
+      }
+    } catch (e) {
+      // Silently fail for now
+    }
+
     final url = Uri.parse('http://127.0.0.1:5000/classes/${widget.collegeId}');
     try {
       final response = await http.get(url);
@@ -336,6 +423,51 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
+          : !_hasActiveSemester
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(
+                      Icons.calendar_month,
+                      size: 48,
+                      color: Colors.orange,
+                    ),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Create a semester first',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Classes belong to a semester. Set one up before adding classes.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.black54),
+                    ),
+                    const SizedBox(height: 16),
+                    ElevatedButton(
+                      onPressed: () async {
+                        await Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => SemesterManagementScreen(
+                              collegeId: widget.collegeId,
+                            ),
+                          ),
+                        );
+                        _fetchClasses();
+                      },
+                      child: const Text('Create Semester'),
+                    ),
+                  ],
+                ),
+              ),
+            )
           : _classes.isEmpty
           ? const Center(child: Text('No classes yet. Tap + to add one.'))
           : ListView.builder(
@@ -351,12 +483,17 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     trailing: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Chip(
-                          label: Text(hasCC ? 'CC Assigned' : 'Unassigned'),
-                          backgroundColor: hasCC
-                              ? Colors.green.shade100
-                              : Colors.orange.shade100,
-                        ),
+                        hasCC
+                            ? Chip(
+                                label: const Text('CC Assigned'),
+                                backgroundColor: Colors.green.shade100,
+                              )
+                            : ActionChip(
+                                label: const Text('Unassigned'),
+                                backgroundColor: Colors.orange.shade100,
+                                onPressed: () =>
+                                    _showInviteFacultyDialog(cls['class_id']),
+                              ),
                         IconButton(
                           icon: const Icon(Icons.people),
                           tooltip: 'CC Requests',
@@ -401,10 +538,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                 );
               },
             ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _showAddClassDialog,
-        child: const Icon(Icons.add),
-      ),
+      floatingActionButton: _hasActiveSemester
+          ? FloatingActionButton(
+              onPressed: _showAddClassDialog,
+              child: const Icon(Icons.add),
+            )
+          : null,
     );
   }
 }
