@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 app = Flask(__name__)
 CORS(app)
 
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///timetable.db'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://root:Dhana%402006@localhost/timetable_db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
@@ -62,6 +62,7 @@ class Course(db.Model):
     course_id = db.Column(db.Integer, primary_key=True)
     class_id = db.Column(db.Integer, db.ForeignKey('class.class_id'), nullable=False)
     course_name = db.Column(db.String(100), nullable=False)
+    course_code = db.Column(db.String(30), nullable=True)
     faculty_id = db.Column(db.Integer, db.ForeignKey('faculty.faculty_id'), nullable=True)
     created_at = db.Column(db.DateTime, server_default=db.func.now())
 
@@ -86,6 +87,10 @@ class TimetableEntry(db.Model):
     class_id = db.Column(db.Integer, db.ForeignKey('class.class_id'), nullable=False)
     day_of_week = db.Column(db.String(10), nullable=False)  # MON, TUE, etc.
     period_no = db.Column(db.Integer, nullable=False)
+    entry_type = db.Column(db.String(10), nullable=False, default='period')  # 'period' or 'break'
+    label = db.Column(db.String(50), nullable=True)  # break name, e.g. "Lunch"
+    start_time = db.Column(db.String(10), nullable=True)  # e.g. "09:00"
+    end_time = db.Column(db.String(10), nullable=True)  # e.g. "09:50"
     course_id = db.Column(db.Integer, db.ForeignKey('course.course_id'), nullable=True)
     status_color = db.Column(db.String(20), nullable=False, default='normal')
 
@@ -293,7 +298,14 @@ def login_faculty():
 
 @app.route("/classes/<int:college_id>", methods=["GET"])
 def get_classes(college_id):
-    classes = Class.query.filter_by(college_id=college_id).all()
+    active_semester = Semester.query.filter_by(college_id=college_id, is_active=True).first()
+
+    if active_semester:
+        classes = Class.query.filter_by(college_id=college_id, semester_id=active_semester.semester_id).all()
+    else:
+        # No active semester set yet - show classes with no semester (legacy/fallback)
+        classes = Class.query.filter_by(college_id=college_id, semester_id=None).all()
+
     result = []
     for c in classes:
         result.append({
@@ -469,6 +481,10 @@ def get_timetable(class_id):
             "entry_id": e.entry_id,
             "day_of_week": e.day_of_week,
             "period_no": e.period_no,
+            "entry_type": e.entry_type,
+            "label": e.label,
+            "start_time": e.start_time,
+            "end_time": e.end_time,
             "course_id": e.course_id,
             "course_name": course_name,
             "faculty_name": faculty_name,
@@ -778,7 +794,65 @@ def delete_class():
     db.session.delete(class_obj)
     db.session.commit()
     return jsonify({"message": "Class deleted successfully!"})
-    
+
+@app.route("/generate_schedule", methods=["POST"])
+def generate_schedule():
+    data = request.get_json()
+    class_id = data["class_id"]
+    day_of_week = data["day_of_week"]
+    slot_order = data["slot_order"]  # list like ["period", "period", "break", "period"]
+
+    created_entries = []
+    for index, slot_type in enumerate(slot_order):
+        new_entry = TimetableEntry(
+            class_id=class_id,
+            day_of_week=day_of_week,
+            period_no=index + 1,
+            entry_type=slot_type
+        )
+        db.session.add(new_entry)
+        db.session.flush()  # get entry_id before commit
+        created_entries.append(new_entry.entry_id)
+
+    db.session.commit()
+    return jsonify({"message": "Schedule slots created!", "entry_ids": created_entries})
+
+@app.route("/fill_period_slot", methods=["POST"])
+def fill_period_slot():
+    data = request.get_json()
+    entry = TimetableEntry.query.get(data["entry_id"])
+    if not entry:
+        return jsonify({"error": "Entry not found"}), 404
+
+    new_course = Course(
+        class_id=entry.class_id,
+        course_name=data["course_name"],
+        course_code=data.get("course_code", "")
+    )
+    db.session.add(new_course)
+    db.session.flush()
+
+    entry.course_id = new_course.course_id
+    entry.start_time = data["start_time"]
+    entry.end_time = data["end_time"]
+
+    db.session.commit()
+    return jsonify({"message": "Period filled successfully!"})\
+        
+@app.route("/fill_break_slot", methods=["POST"])
+def fill_break_slot():
+    data = request.get_json()
+    entry = TimetableEntry.query.get(data["entry_id"])
+    if not entry:
+        return jsonify({"error": "Entry not found"}), 404
+
+    entry.label = data["label"]
+    entry.start_time = data["start_time"]
+    entry.end_time = data["end_time"]
+
+    db.session.commit()
+    return jsonify({"message": "Break filled successfully!"})
+
 if os.environ.get('WERKZEUG_RUN_MAIN') == 'true' or not app.debug:
     scheduler = BackgroundScheduler()
     scheduler.add_job(check_pending_leaves, 'interval', minutes=1)

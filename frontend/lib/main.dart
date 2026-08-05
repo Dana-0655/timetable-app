@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'role_selection_screen.dart';
+import 'session_manager.dart';
+import 'admin_dashboard_screen.dart';
+import 'faculty_dashboard_screen.dart';
 
 void main() {
   runApp(const MyApp());
@@ -42,8 +45,63 @@ class MyApp extends StatelessWidget {
           fillColor: Colors.grey.shade50,
         ),
       ),
-      home: const WelcomeScreen(),
+      home: const SessionChecker(),
     );
+  }
+}
+
+class SessionChecker extends StatefulWidget {
+  const SessionChecker({super.key});
+
+  @override
+  State<SessionChecker> createState() => _SessionCheckerState();
+}
+
+class _SessionCheckerState extends State<SessionChecker> {
+  @override
+  void initState() {
+    super.initState();
+    _checkSession();
+  }
+
+  Future<void> _checkSession() async {
+    final session = await SessionManager.getSession();
+
+    if (!mounted) return;
+
+    if (session == null) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const WelcomeScreen()),
+      );
+    } else if (session['role'] == 'admin') {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (context) => AdminDashboardScreen(
+            adminId: session['adminId'],
+            adminName: session['name'],
+            collegeId: session['collegeId'],
+          ),
+        ),
+      );
+    } else if (session['role'] == 'faculty') {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (context) => FacultyDashboardScreen(
+            facultyId: session['facultyId'],
+            facultyName: session['name'],
+            collegeId: session['collegeId'],
+          ),
+        ),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(body: Center(child: CircularProgressIndicator()));
   }
 }
 

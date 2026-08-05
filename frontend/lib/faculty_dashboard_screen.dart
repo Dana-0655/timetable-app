@@ -5,9 +5,10 @@ import 'faculty_class_courses_screen.dart';
 import 'faculty_my_schedule_screen.dart';
 import 'faculty_open_slots_screen.dart';
 import 'faculty_pending_leaves_screen.dart';
-import 'faculty_swap_request_screen.dart';
 import 'faculty_swap_responses_screen.dart';
 import 'browse_timetables_screen.dart';
+import 'session_manager.dart';
+import 'main.dart';
 
 class FacultyDashboardScreen extends StatefulWidget {
   final int facultyId;
@@ -33,6 +34,17 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
   void initState() {
     super.initState();
     _fetchClasses();
+  }
+
+  Future<void> _logout() async {
+    await SessionManager.clearSession();
+    if (mounted) {
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(builder: (context) => const WelcomeScreen()),
+        (route) => false,
+      );
+    }
   }
 
   Future<void> _fetchClasses() async {
@@ -143,6 +155,11 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
                 ),
               ),
             ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.logout),
+            tooltip: 'Logout',
+            onPressed: _logout,
           ),
         ],
       ),

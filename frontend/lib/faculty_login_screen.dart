@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'faculty_dashboard_screen.dart';
+import 'session_manager.dart';
 
 class FacultyLoginScreen extends StatefulWidget {
   const FacultyLoginScreen({super.key});
@@ -31,7 +32,7 @@ class _FacultyLoginScreenState extends State<FacultyLoginScreen> {
       _errorMessage = null;
     });
 
-    final url = Uri.parse('http://127.0.0.1:5000/login_admin');
+    final url = Uri.parse('http://127.0.0.1:5000/login_faculty');
 
     try {
       final response = await http.post(
@@ -46,16 +47,23 @@ class _FacultyLoginScreenState extends State<FacultyLoginScreen> {
       final data = jsonDecode(response.body);
 
       if (response.statusCode == 200) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (context) => FacultyDashboardScreen(
-              facultyId: data['faculty_id'],
-              facultyName: data['name'],
-              collegeId: data['college_id'],
-            ),
-          ),
+        await SessionManager.saveFacultySession(
+          data['faculty_id'],
+          data['name'],
+          data['college_id'],
         );
+        if (mounted) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (context) => FacultyDashboardScreen(
+                facultyId: data['faculty_id'],
+                facultyName: data['name'],
+                collegeId: data['college_id'],
+              ),
+            ),
+          );
+        }
       } else {
         setState(() {
           _errorMessage = data['error'] ?? 'Login failed';

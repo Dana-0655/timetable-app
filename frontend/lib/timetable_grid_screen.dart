@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'schedule_builder_screen.dart';
 
 class TimetableGridScreen extends StatefulWidget {
   final int classId;
@@ -207,8 +208,26 @@ class _TimetableGridScreenState extends State<TimetableGridScreen> {
                               );
 
                         if (dayEntries.isEmpty) {
-                          return const Center(
-                            child: Text('No periods this day.'),
+                          return Center(
+                            child: ElevatedButton.icon(
+                              icon: const Icon(Icons.add_chart),
+                              label: const Text('Make Schedule'),
+                              onPressed: () async {
+                                final result = await Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => ScheduleBuilderScreen(
+                                      classId: widget.classId,
+                                      className: widget.className,
+                                      dayOfWeek: day,
+                                    ),
+                                  ),
+                                );
+                                if (result == true) {
+                                  _fetchTimetable();
+                                }
+                              },
+                            ),
                           );
                         }
 

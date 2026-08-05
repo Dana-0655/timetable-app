@@ -3,6 +3,9 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'class_courses_screen.dart';
 import 'semester_management_screen.dart';
+import 'session_manager.dart';
+import 'main.dart';
+import 'admin_timetable_view_screen.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
   final int adminId;
@@ -28,6 +31,17 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   void initState() {
     super.initState();
     _fetchClasses();
+  }
+
+  Future<void> _logout() async {
+    await SessionManager.clearSession();
+    if (mounted) {
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(builder: (context) => const WelcomeScreen()),
+        (route) => false,
+      );
+    }
   }
 
   void _confirmDeleteClass(int classId, String className) {
@@ -150,7 +164,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         body: jsonEncode({'cc_request_id': ccRequestId, 'decision': decision}),
       );
       if (response.statusCode == 200) {
-        _fetchClasses(); // Refresh the class list to show updated CC status
+        _fetchClasses();
       }
     } catch (e) {
       // Silently fail for now
@@ -276,13 +290,21 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           IconButton(
             icon: const Icon(Icons.calendar_month),
             tooltip: 'Manage Semesters',
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) =>
-                    SemesterManagementScreen(collegeId: widget.collegeId),
-              ),
-            ),
+            onPressed: () async {
+              await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) =>
+                      SemesterManagementScreen(collegeId: widget.collegeId),
+                ),
+              );
+              _fetchClasses(); // Refresh class list after returning (in case semester was switched)
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.logout),
+            tooltip: 'Logout',
+            onPressed: _logout,
           ),
         ],
       ),
@@ -310,7 +332,16 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                               : Colors.orange.shade100,
                         ),
                         IconButton(
+                          icon: const Icon(Icons.people),
+                          tooltip: 'CC Requests',
+                          onPressed: () => _showPendingRequests(
+                            cls['class_id'],
+                            '${cls['year']} - ${cls['section']}',
+                          ),
+                        ),
+                        IconButton(
                           icon: const Icon(Icons.menu_book),
+                          tooltip: 'Manage Courses',
                           onPressed: () => Navigator.push(
                             context,
                             MaterialPageRoute(
@@ -323,6 +354,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                         ),
                         IconButton(
                           icon: const Icon(Icons.delete, color: Colors.red),
+                          tooltip: 'Delete Class',
                           onPressed: () => _confirmDeleteClass(
                             cls['class_id'],
                             '${cls['year']} - ${cls['section']}',
@@ -330,9 +362,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                         ),
                       ],
                     ),
-                    onTap: () => _showPendingRequests(
-                      cls['class_id'],
-                      '${cls['year']} - ${cls['section']}',
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => AdminTimetableViewScreen(
+                          classId: cls['class_id'],
+                          className: '${cls['year']} - ${cls['section']}',
+                        ),
+                      ),
                     ),
                   ),
                 );
