@@ -6,6 +6,8 @@ import 'semester_management_screen.dart';
 import 'session_manager.dart';
 import 'main.dart';
 import 'admin_timetable_view_screen.dart';
+import 'promote_faculty_screen.dart';
+import 'admin_add_faculty_screen.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
   final int adminId;
@@ -287,6 +289,30 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       appBar: AppBar(
         title: Text('Welcome, ${widget.adminName}'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.person_add),
+            tooltip: 'Add Faculty',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => AdminAddFacultyScreen(
+                  adminId: widget.adminId,
+                  collegeId: widget.collegeId,
+                ),
+              ),
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.admin_panel_settings),
+            tooltip: 'Give Admin Access',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) =>
+                    PromoteFacultyScreen(collegeId: widget.collegeId),
+              ),
+            ),
+          ),
           IconButton(
             icon: const Icon(Icons.calendar_month),
             tooltip: 'Manage Semesters',

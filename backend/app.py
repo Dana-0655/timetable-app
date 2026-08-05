@@ -853,6 +853,112 @@ def fill_break_slot():
     db.session.commit()
     return jsonify({"message": "Break filled successfully!"})
 
+@app.route("/create_college_and_admin", methods=["POST"])
+def create_college_and_admin():
+    data = request.get_json()
+
+    # Check college code isn't already taken
+    existing_college = College.query.filter_by(college_code=data["college_code"].strip()).first()
+    if existing_college:
+        return jsonify({"error": "This college code is already taken. Choose another."}), 400
+
+    existing_admin = Admin.query.filter_by(email=data["admin_email"].strip()).first()
+    if existing_admin:
+        return jsonify({"error": "This email is already registered."}), 400
+
+    # Create the college
+    new_college = College(
+        college_name=data["college_name"].strip(),
+        college_code=data["college_code"].strip()
+    )
+    db.session.add(new_college)
+    db.session.flush()  # get college_id before commit
+
+    # Create the admin account for this college
+    hashed_pw = bcrypt.generate_password_hash(data["admin_password"]).decode('utf-8')
+    new_admin = Admin(
+        college_id=new_college.college_id,
+        name=data["admin_name"].strip(),
+        email=data["admin_email"].strip(),
+        password_hash=hashed_pw,
+        department_name=data.get("department_name", "").strip()
+    )
+    db.session.add(new_admin)
+    db.session.commit()
+
+    return jsonify({
+        "message": "College and Admin account created successfully!",
+        "college_id": new_college.college_id,
+        "admin_id": new_admin.admin_id,
+        "admin_name": new_admin.name
+    })
+
+@app.route("/promote_to_admin", methods=["POST"])
+def promote_to_admin():
+    data = request.get_json()
+
+    faculty = Faculty.query.get(data["faculty_id"])
+    if not faculty:
+        return jsonify({"error": "Faculty not found"}), 404
+
+    existing_admin = Admin.query.filter_by(email=faculty.email).first()
+    if existing_admin:
+        return jsonify({"error": "This person is already an admin"}), 400
+
+    new_admin = Admin(
+        college_id=faculty.college_id,
+        name=faculty.name,
+        email=faculty.email,
+        password_hash=faculty.password_hash,  # reuse existing password
+        department_name=faculty.subject_expertise or ""
+    )
+    db.session.add(new_admin)
+    db.session.commit()
+
+    return jsonify({"message": f"{faculty.name} is now an Admin!"})
+
+@app.route("/faculty_list/<int:college_id>", methods=["GET"])
+def get_faculty_list(college_id):
+    faculty = Faculty.query.filter_by(college_id=college_id).all()
+    result = []
+    for f in faculty:
+        result.append({
+            "faculty_id": f.faculty_id,
+            "name": f.name,
+            "email": f.email
+        })
+    return jsonify(result)
+
+@app.route("/admin_create_faculty", methods=["POST"])
+def admin_create_faculty():
+    data = request.get_json()
+
+    admin = Admin.query.get(data["admin_id"])
+    if not admin:
+        return jsonify({"error": "Invalid admin"}), 400
+
+    existing_faculty = Faculty.query.filter_by(email=data["email"].strip()).first()
+    if existing_faculty:
+        return jsonify({"error": f"{data['email']} is already registered"}), 400
+
+    hashed_pw = bcrypt.generate_password_hash(data["password"]).decode('utf-8')
+
+    new_faculty = Faculty(
+        college_id=admin.college_id,
+        name=data["name"].strip(),
+        email=data["email"].strip(),
+        password_hash=hashed_pw,
+        subject_expertise=data.get("subject_expertise", "").strip()
+    )
+    db.session.add(new_faculty)
+    db.session.commit()
+
+    return jsonify({
+        "message": f"{new_faculty.name} added successfully!",
+        "faculty_id": new_faculty.faculty_id
+    })
+
+
 if os.environ.get('WERKZEUG_RUN_MAIN') == 'true' or not app.debug:
     scheduler = BackgroundScheduler()
     scheduler.add_job(check_pending_leaves, 'interval', minutes=1)

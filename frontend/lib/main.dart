@@ -5,6 +5,7 @@ import 'role_selection_screen.dart';
 import 'session_manager.dart';
 import 'admin_dashboard_screen.dart';
 import 'faculty_dashboard_screen.dart';
+import 'create_college_screen.dart';
 
 void main() {
   runApp(const MyApp());
@@ -196,6 +197,20 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                       onPressed: _verifyCode,
                       child: const Text('Continue'),
                     ),
+              const SizedBox(height: 12),
+              TextButton(
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const CreateCollegeScreen(),
+                    ),
+                  );
+                },
+                child: const Text(
+                  "Don't have a college code? Register your college",
+                ),
+              ),
             ],
           ),
         ),
