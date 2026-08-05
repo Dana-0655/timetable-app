@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'fill_slot_screen.dart';
 import 'schedule_builder_screen.dart';
 
 class AdminTimetableViewScreen extends StatefulWidget {
@@ -59,6 +60,88 @@ class _AdminTimetableViewScreenState extends State<AdminTimetableViewScreen> {
     }
   }
 
+  void _confirmDeleteSlot(int entryId) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Slot'),
+        content: const Text('Are you sure you want to delete this slot?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () async {
+              Navigator.pop(context);
+              await _deleteSlot(entryId);
+            },
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _deleteSlot(int entryId) async {
+    final url = Uri.parse('http://127.0.0.1:5000/delete_timetable_entry');
+    try {
+      final response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'entry_id': entryId}),
+      );
+      if (response.statusCode == 200) {
+        _fetchTimetable();
+      }
+    } catch (e) {
+      // Silently fail for now
+    }
+  }
+
+  void _confirmDeleteDay(String day) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Delete $day Schedule'),
+        content: Text(
+          'This will delete ALL periods and breaks for $day. Are you sure?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () async {
+              Navigator.pop(context);
+              await _deleteDay(day);
+            },
+            child: const Text('Delete All'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _deleteDay(String day) async {
+    final url = Uri.parse('http://127.0.0.1:5000/delete_day_schedule');
+    try {
+      final response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'class_id': widget.classId, 'day_of_week': day}),
+      );
+      if (response.statusCode == 200) {
+        _fetchTimetable();
+      }
+    } catch (e) {
+      // Silently fail for now
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
@@ -98,29 +181,136 @@ class _AdminTimetableViewScreenState extends State<AdminTimetableViewScreen> {
                             ),
                           );
                           if (result == true) {
-                            _fetchTimetable(); // Refresh after building schedule
+                            _fetchTimetable();
                           }
                         },
                       ),
                     );
                   }
 
-                  return ListView.builder(
-                    padding: const EdgeInsets.all(16),
-                    itemCount: dayEntries.length,
-                    itemBuilder: (context, index) {
-                      final entry = dayEntries[index];
-                      return Card(
-                        color: _colorForStatus(entry['status_color']),
-                        child: ListTile(
-                          title: Text('Period ${entry['period_no']}'),
-                          subtitle: Text(
-                            '${entry['course_name'] ?? 'Unassigned'} • '
-                            '${entry['faculty_name'] ?? 'No faculty'}',
+                  return Column(
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.all(8),
+                        child: Align(
+                          alignment: Alignment.centerRight,
+                          child: TextButton.icon(
+                            icon: const Icon(
+                              Icons.delete_sweep,
+                              color: Colors.red,
+                            ),
+                            label: const Text(
+                              'Delete Day Schedule',
+                              style: TextStyle(color: Colors.red),
+                            ),
+                            onPressed: () => _confirmDeleteDay(day),
                           ),
                         ),
-                      );
-                    },
+                      ),
+                      Expanded(
+                        child: ListView.builder(
+                          padding: const EdgeInsets.all(16),
+                          itemCount: dayEntries.length,
+                          itemBuilder: (context, index) {
+                            final entry = dayEntries[index];
+                            final isBreakEntry = entry['entry_type'] == 'break';
+                            final isFilled = isBreakEntry
+                                ? entry['label'] != null
+                                : entry['course_name'] != null;
+
+                            return Card(
+                              color: isBreakEntry
+                                  ? Colors.grey.shade200
+                                  : _colorForStatus(entry['status_color']),
+                              child: ListTile(
+                                leading: Icon(
+                                  isBreakEntry
+                                      ? Icons.free_breakfast
+                                      : Icons.book,
+                                ),
+                                title: Text(
+                                  isBreakEntry
+                                      ? (entry['label'] ??
+                                            'Break (tap to set up)')
+                                      : (entry['course_name'] ??
+                                            'Period ${entry['period_no']} (tap to set up)'),
+                                ),
+                                subtitle: Text(
+                                  isFilled
+                                      ? '${entry['start_time'] ?? ''} - ${entry['end_time'] ?? ''}'
+                                            '${!isBreakEntry ? ' • ${entry['faculty_name'] ?? 'No faculty assigned'}' : ''}'
+                                      : 'Tap to fill in details',
+                                ),
+                                trailing: isFilled
+                                    ? Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          IconButton(
+                                            icon: const Icon(
+                                              Icons.edit,
+                                              size: 20,
+                                            ),
+                                            onPressed: () async {
+                                              final result = await Navigator.push(
+                                                context,
+                                                MaterialPageRoute(
+                                                  builder: (context) =>
+                                                      FillSlotScreen(
+                                                        entryId:
+                                                            entry['entry_id'],
+                                                        entryType:
+                                                            entry['entry_type'],
+                                                        isEdit: true,
+                                                        existingCourseName:
+                                                            entry['course_name'],
+                                                        existingLabel:
+                                                            entry['label'],
+                                                        existingStartTime:
+                                                            entry['start_time'],
+                                                        existingEndTime:
+                                                            entry['end_time'],
+                                                      ),
+                                                ),
+                                              );
+                                              if (result == true)
+                                                _fetchTimetable();
+                                            },
+                                          ),
+                                          IconButton(
+                                            icon: const Icon(
+                                              Icons.delete,
+                                              size: 20,
+                                              color: Colors.red,
+                                            ),
+                                            onPressed: () => _confirmDeleteSlot(
+                                              entry['entry_id'],
+                                            ),
+                                          ),
+                                        ],
+                                      )
+                                    : const Icon(Icons.edit),
+                                onTap: isFilled
+                                    ? null
+                                    : () async {
+                                        final result = await Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (context) =>
+                                                FillSlotScreen(
+                                                  entryId: entry['entry_id'],
+                                                  entryType:
+                                                      entry['entry_type'],
+                                                ),
+                                          ),
+                                        );
+                                        if (result == true) _fetchTimetable();
+                                      },
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
                   );
                 }).toList(),
               ),

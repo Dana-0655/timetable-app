@@ -958,6 +958,73 @@ def admin_create_faculty():
         "faculty_id": new_faculty.faculty_id
     })
 
+@app.route("/update_period_slot", methods=["POST"])
+def update_period_slot():
+    data = request.get_json()
+    entry = TimetableEntry.query.get(data["entry_id"])
+    if not entry or not entry.course_id:
+        return jsonify({"error": "Entry not found"}), 404
+
+    course = Course.query.get(entry.course_id)
+    course.course_name = data["course_name"]
+    course.course_code = data.get("course_code", "")
+    entry.start_time = data["start_time"]
+    entry.end_time = data["end_time"]
+
+    db.session.commit()
+    return jsonify({"message": "Period updated successfully!"})
+
+
+@app.route("/update_break_slot", methods=["POST"])
+def update_break_slot():
+    data = request.get_json()
+    entry = TimetableEntry.query.get(data["entry_id"])
+    if not entry:
+        return jsonify({"error": "Entry not found"}), 404
+
+    entry.label = data["label"]
+    entry.start_time = data["start_time"]
+    entry.end_time = data["end_time"]
+
+    db.session.commit()
+    return jsonify({"message": "Break updated successfully!"})
+
+
+@app.route("/delete_timetable_entry", methods=["POST"])
+def delete_timetable_entry():
+    data = request.get_json()
+    entry = TimetableEntry.query.get(data["entry_id"])
+    if not entry:
+        return jsonify({"error": "Entry not found"}), 404
+
+    if entry.course_id:
+        course = Course.query.get(entry.course_id)
+        if course:
+            db.session.delete(course)
+
+    db.session.delete(entry)
+    db.session.commit()
+    return jsonify({"message": "Slot deleted successfully!"})
+
+
+@app.route("/delete_day_schedule", methods=["POST"])
+def delete_day_schedule():
+    data = request.get_json()
+    class_id = data["class_id"]
+    day_of_week = data["day_of_week"]
+
+    entries = TimetableEntry.query.filter_by(class_id=class_id, day_of_week=day_of_week).all()
+
+    for entry in entries:
+        if entry.course_id:
+            course = Course.query.get(entry.course_id)
+            if course:
+                db.session.delete(course)
+        db.session.delete(entry)
+
+    db.session.commit()
+    return jsonify({"message": f"{day_of_week} schedule deleted successfully!"})
+
 
 if os.environ.get('WERKZEUG_RUN_MAIN') == 'true' or not app.debug:
     scheduler = BackgroundScheduler()
