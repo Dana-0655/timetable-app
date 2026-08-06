@@ -137,7 +137,24 @@ class Semester(db.Model):
     is_deleted = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, server_default=db.func.now())
 
+class UserNotification(db.Model):
+    notification_id = db.Column(db.Integer, primary_key=True)
+    recipient_type = db.Column(db.String(20), nullable=False)  # 'admin' or 'faculty'
+    recipient_id = db.Column(db.Integer, nullable=False)
+    message = db.Column(db.String(255), nullable=False)
+    notif_type = db.Column(db.String(30), nullable=False)  # 'cc_invite', 'cc_response', 'course_invite', 'course_response', 'cover_confirmed', 'swap_request', 'swap_response'
+    is_read = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
 
+def create_notification(recipient_type, recipient_id, message, notif_type):
+    notif = UserNotification(
+        recipient_type=recipient_type,
+        recipient_id=recipient_id,
+        message=message,
+        notif_type=notif_type
+    )
+    db.session.add(notif)
+    db.session.commit()
 def check_pending_leaves():
     with app.app_context():
         pending_leaves = Leave.query.filter(Leave.status != "confirmed").all()
@@ -330,6 +347,16 @@ def request_cc():
     db.session.add(new_request)
     db.session.commit()
 
+    faculty = Faculty.query.get(data["faculty_id"])
+    class_obj = Class.query.get(data["class_id"])
+    admin = Admin.query.filter_by(college_id=class_obj.college_id).first()
+    if admin:
+        create_notification(
+            "admin", admin.admin_id,
+            f"{faculty.name} requested to be CC for {class_obj.year} - {class_obj.section}",
+            "cc_invite"
+        )
+
     return jsonify({"message": "CC request sent successfully!", "request_id": new_request.cc_request_id})
 
 @app.route("/cc_requests/<int:class_id>", methods=["GET"])
@@ -357,7 +384,7 @@ def resolve_cc_request():
     if cc_request.status != "pending":
         return jsonify({"error": "This request has already been resolved"}), 400
 
-    cc_request.status = data["decision"]  # "accepted" or "rejected"
+    cc_request.status = data["decision"]
     cc_request.resolved_at = db.func.now()
 
     if data["decision"] == "accepted":
@@ -365,6 +392,14 @@ def resolve_cc_request():
         class_obj.cc_faculty_id = cc_request.faculty_id
 
     db.session.commit()
+
+    faculty = Faculty.query.get(cc_request.faculty_id)
+    class_obj = Class.query.get(cc_request.class_id)
+    create_notification(
+        "faculty", faculty.faculty_id,
+        f"Your CC request for {class_obj.year} - {class_obj.section} was {data['decision']}",
+        "cc_response"
+    )
 
     return jsonify({"message": f"CC request {data['decision']} successfully!"})
 
@@ -390,6 +425,18 @@ def request_course_faculty():
     )
     db.session.add(new_request)
     db.session.commit()
+
+    faculty = Faculty.query.get(data["faculty_id"])
+    course = Course.query.get(data["course_id"])
+    class_obj = Class.query.get(course.class_id)
+    admin = Admin.query.filter_by(college_id=class_obj.college_id).first()
+    if admin:
+        create_notification(
+            "admin", admin.admin_id,
+            f"{faculty.name} requested to teach {course.course_name}",
+            "course_invite"
+        )
+
     return jsonify({"message": "Course faculty request sent!", "request_id": new_request.cf_request_id})
 
 @app.route("/course_faculty_requests/<int:course_id>", methods=["GET"])
@@ -424,6 +471,15 @@ def resolve_course_faculty_request():
         course.faculty_id = cf_request.faculty_id
 
     db.session.commit()
+
+    faculty = Faculty.query.get(cf_request.faculty_id)
+    course = Course.query.get(cf_request.course_id)
+    create_notification(
+        "faculty", faculty.faculty_id,
+        f"Your request to teach {course.course_name} was {data['decision']}",
+        "course_response"
+    )
+
     return jsonify({"message": f"Course faculty request {data['decision']} successfully!"})
 
 @app.route("/set_timetable_config", methods=["POST"])
@@ -586,7 +642,6 @@ def confirm_cover_request():
     chosen_request = CoverRequest.query.get(data["cover_req_id"])
     chosen_request.status = "accepted"
 
-    # Reject all other pending requests for this same leave
     other_requests = CoverRequest.query.filter(
         CoverRequest.leave_id == data["leave_id"],
         CoverRequest.cover_req_id != data["cover_req_id"]
@@ -594,16 +649,27 @@ def confirm_cover_request():
     for r in other_requests:
         r.status = "rejected"
 
-    # Update the Leave record
     leave.status = "confirmed"
     leave.confirmed_faculty_id = chosen_request.requesting_faculty_id
-    leave.confirmed_by_role = data["confirmed_by_role"]  # 'faculty' or 'cc'
+    leave.confirmed_by_role = data["confirmed_by_role"]
 
-    # Update the timetable entry: assign substitute + change color
     entry = TimetableEntry.query.get(leave.entry_id)
     entry.status_color = "confirmed_cover"
 
     db.session.commit()
+
+    substitute = Faculty.query.get(chosen_request.requesting_faculty_id)
+    original_faculty = Faculty.query.get(leave.faculty_id)
+    create_notification(
+        "faculty", substitute.faculty_id,
+        f"You're confirmed to cover {entry.day_of_week} Period {entry.period_no}",
+        "cover_confirmed"
+    )
+    create_notification(
+        "faculty", original_faculty.faculty_id,
+        f"{substitute.name} will cover your {entry.day_of_week} Period {entry.period_no}",
+        "cover_confirmed"
+    )
 
     return jsonify({"message": "Cover request confirmed successfully!"})
 
@@ -619,6 +685,13 @@ def send_swap_request():
     )
     db.session.add(new_swap)
     db.session.commit()
+
+    requester = Faculty.query.get(data["requester_faculty_id"])
+    create_notification(
+        "faculty", data["target_faculty_id"],
+        f"{requester.name} sent you a swap request",
+        "swap_request"
+    )
 
     return jsonify({"message": "Swap request sent!", "swap_id": new_swap.swap_id})
 
@@ -655,13 +728,18 @@ def resolve_swap_request():
     if data["decision"] == "accepted":
         requester_entry = TimetableEntry.query.get(swap.requester_entry_id)
         target_entry = TimetableEntry.query.get(swap.target_entry_id)
-
-        # Swap the courses between the two slots
         requester_entry.course_id, target_entry.course_id = target_entry.course_id, requester_entry.course_id
         requester_entry.status_color = "swapped"
         target_entry.status_color = "swapped"
 
     db.session.commit()
+
+    requester = Faculty.query.get(swap.requester_faculty_id)
+    create_notification(
+        "faculty", requester.faculty_id,
+        f"Your swap request was {data['decision']}",
+        "swap_response"
+    )
 
     return jsonify({"message": f"Swap request {data['decision']} successfully!"})
 
@@ -1054,6 +1132,13 @@ def admin_invite_cc():
     db.session.add(new_request)
     db.session.commit()
 
+    class_obj = Class.query.get(data["class_id"])
+    create_notification(
+        "faculty", data["faculty_id"],
+        f"You've been invited to be CC for {class_obj.year} - {class_obj.section}",
+        "cc_invite"
+    )
+
     return jsonify({"message": "Invitation sent to faculty!", "request_id": new_request.cc_request_id})
 
 @app.route("/faculty_cc_invites/<int:faculty_id>", methods=["GET"])
@@ -1068,7 +1153,45 @@ def get_faculty_cc_invites(faculty_id):
             "class_name": f"{class_obj.year} - {class_obj.section}"
         })
     return jsonify(result)
+    
+@app.route("/notifications/<string:recipient_type>/<int:recipient_id>", methods=["GET"])
+def get_notifications(recipient_type, recipient_id):
+    notifs = UserNotification.query.filter_by(
+        recipient_type=recipient_type,
+        recipient_id=recipient_id
+    ).order_by(UserNotification.created_at.desc()).all()
 
+    result = []
+    for n in notifs:
+        result.append({
+            "notification_id": n.notification_id,
+            "message": n.message,
+            "notif_type": n.notif_type,
+            "is_read": n.is_read,
+            "created_at": n.created_at.strftime("%Y-%m-%d %H:%M") if n.created_at else ""
+        })
+    return jsonify(result)
+
+
+@app.route("/unread_notification_count/<string:recipient_type>/<int:recipient_id>", methods=["GET"])
+def get_unread_count(recipient_type, recipient_id):
+    count = UserNotification.query.filter_by(
+        recipient_type=recipient_type,
+        recipient_id=recipient_id,
+        is_read=False
+    ).count()
+    return jsonify({"count": count})
+
+
+
+@app.route("/mark_notification_read", methods=["POST"])
+def mark_notification_read():
+    data = request.get_json()
+    notif = UserNotification.query.get(data["notification_id"])
+    if notif:
+        notif.is_read = True
+        db.session.commit()
+    return jsonify({"message": "Marked as read"})
 
 if os.environ.get('WERKZEUG_RUN_MAIN') == 'true' or not app.debug:
     scheduler = BackgroundScheduler()
