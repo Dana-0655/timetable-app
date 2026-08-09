@@ -5,13 +5,14 @@ import 'dart:convert';
 class ClassCoursesScreen extends StatefulWidget {
   final int classId;
   final String className;
+  final int collegeId;
 
   const ClassCoursesScreen({
     super.key,
     required this.classId,
     required this.className,
+    required this.collegeId,
   });
-
   @override
   State<ClassCoursesScreen> createState() => _ClassCoursesScreenState();
 }
@@ -24,6 +25,79 @@ class _ClassCoursesScreenState extends State<ClassCoursesScreen> {
   void initState() {
     super.initState();
     _fetchTimetable();
+  }
+
+  Future<void> _showInviteCourseFacultyDialog(int courseId, int classId) async {
+    final url = Uri.parse(
+      'http://127.0.0.1:5000/faculty_list/${widget.collegeId}',
+    );
+    try {
+      final response = await http.get(url);
+      final List<dynamic> facultyList = jsonDecode(response.body);
+
+      if (!mounted) return;
+
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Invite Faculty to Teach'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: facultyList.isEmpty
+                ? const Text('No faculty available.')
+                : ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: facultyList.length,
+                    itemBuilder: (context, index) {
+                      final f = facultyList[index];
+                      return ListTile(
+                        title: Text(f['name']),
+                        subtitle: Text(f['email']),
+                        trailing: ElevatedButton(
+                          onPressed: () async {
+                            Navigator.pop(context);
+                            await _inviteCourseFaculty(
+                              courseId,
+                              f['faculty_id'],
+                            );
+                          },
+                          child: const Text('Invite'),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+          ],
+        ),
+      );
+    } catch (e) {
+      // Silently fail for now
+    }
+  }
+
+  Future<void> _inviteCourseFaculty(int courseId, int facultyId) async {
+    final url = Uri.parse('http://127.0.0.1:5000/admin_invite_course_faculty');
+    try {
+      final response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'course_id': courseId, 'faculty_id': facultyId}),
+      );
+      if (response.statusCode == 200) {
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('Invitation sent!')));
+        }
+      }
+    } catch (e) {
+      // Silently fail for now
+    }
   }
 
   Future<void> _fetchTimetable() async {
@@ -42,76 +116,48 @@ class _ClassCoursesScreenState extends State<ClassCoursesScreen> {
     }
   }
 
-  void _showAddCourseDialog() {
-    final courseController = TextEditingController();
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Add Course'),
-        content: TextField(
-          controller: courseController,
-          decoration: const InputDecoration(labelText: 'Course Name'),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              await _addCourse(courseController.text);
-              if (mounted) Navigator.pop(context);
-            },
-            child: const Text('Add'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _addCourse(String courseName) async {
-    if (courseName.trim().isEmpty) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Please enter a course name.')),
-        );
-      }
-      return;
-    }
-
-    final url = Uri.parse('http://127.0.0.1:5000/add_course');
+  Future<void> _showCourseInfo(int courseId) async {
+    final url = Uri.parse('http://127.0.0.1:5000/course_detail/$courseId');
     try {
-      final response = await http.post(
-        url,
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'class_id': widget.classId,
-          'course_name': courseName,
-        }),
-      );
+      final response = await http.get(url);
+      if (!mounted) return;
+
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        await _addTimetableEntry(data['course_id']);
-      }
-    } catch (e) {
-      // Silently fail for now
-    }
-  }
+        final faculty = data['faculty'];
 
-  Future<void> _addTimetableEntry(int courseId) async {
-    final url = Uri.parse('http://127.0.0.1:5000/add_timetable_entry');
-    try {
-      await http.post(
-        url,
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'class_id': widget.classId,
-          'day_of_week': 'MON',
-          'period_no': _entries.length + 1,
-          'course_id': courseId,
-        }),
-      );
-      _fetchTimetable();
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: Text(data['course_name']),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Course Code: ${data['course_code']}'),
+                const SizedBox(height: 12),
+                if (faculty != null) ...[
+                  const Text(
+                    'Faculty',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 4),
+                  Text('Name: ${faculty['name']}'),
+                  Text('Email: ${faculty['email']}'),
+                  Text('Expertise: ${faculty['subject_expertise']}'),
+                ] else
+                  const Text('No faculty assigned yet.'),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Close'),
+              ),
+            ],
+          ),
+        );
+      }
     } catch (e) {
       // Silently fail for now
     }
@@ -210,43 +256,84 @@ class _ClassCoursesScreenState extends State<ClassCoursesScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final namedEntries = <dynamic>[];
+    final seenCourseIds = <int>{};
+    for (var e in _entries) {
+      if (e['course_name'] != null && !seenCourseIds.contains(e['course_id'])) {
+        namedEntries.add(e);
+        seenCourseIds.add(e['course_id']);
+      }
+    }
+
     return Scaffold(
       appBar: AppBar(title: Text('${widget.className} - Courses')),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : _entries.isEmpty
-          ? const Center(child: Text('No courses yet. Tap + to add one.'))
+          : namedEntries.isEmpty
+          ? const Center(
+              child: Padding(
+                padding: EdgeInsets.all(24),
+                child: Text(
+                  'No courses yet. Go to the class Timetable and use "Make Schedule" to add periods and course details.',
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            )
           : ListView.builder(
               padding: const EdgeInsets.all(16),
-              itemCount: _entries.length,
+              itemCount: namedEntries.length,
               itemBuilder: (context, index) {
-                final entry = _entries[index];
+                final entry = namedEntries[index];
                 final hasFaculty = entry['faculty_name'] != null;
                 return Card(
                   child: ListTile(
-                    title: Text(entry['course_name'] ?? 'Unnamed'),
+                    title: Text(entry['course_name']),
                     subtitle: Text(
                       hasFaculty
                           ? 'Faculty: ${entry['faculty_name']}'
                           : 'No faculty assigned',
                     ),
-                    trailing: hasFaculty
-                        ? const Icon(Icons.check_circle, color: Colors.green)
-                        : IconButton(
-                            icon: const Icon(Icons.list_alt),
-                            onPressed: () => _showPendingCourseRequests(
-                              entry['course_id'],
-                              entry['course_name'],
-                            ),
-                          ),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.info_outline),
+                          tooltip: 'Course Info',
+                          onPressed: () => _showCourseInfo(entry['course_id']),
+                        ),
+                        hasFaculty
+                            ? const Icon(
+                                Icons.check_circle,
+                                color: Colors.green,
+                              )
+                            : Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  IconButton(
+                                    icon: const Icon(Icons.list_alt),
+                                    tooltip: 'Pending Requests',
+                                    onPressed: () => _showPendingCourseRequests(
+                                      entry['course_id'],
+                                      entry['course_name'],
+                                    ),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.person_add_alt),
+                                    tooltip: 'Invite Faculty',
+                                    onPressed: () => _showInviteCourseFacultyDialog(
+                                      entry['course_id'],
+                                      widget
+                                          .classId, // need collegeId to fetch faculty list
+                                    ),
+                                  ),
+                                ],
+                              ),
+                      ],
+                    ),
                   ),
                 );
               },
             ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _showAddCourseDialog,
-        child: const Icon(Icons.add),
-      ),
     );
   }
 }

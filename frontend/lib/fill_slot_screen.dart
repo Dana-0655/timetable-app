@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class FillSlotScreen extends StatefulWidget {
   final int entryId;
@@ -57,14 +58,35 @@ class _FillSlotScreenState extends State<FillSlotScreen> {
   }
 
   Future<void> _pickTime(TextEditingController controller) async {
+    TimeOfDay initial = TimeOfDay.now();
+
+    // Try to use last-used time as default
+    final prefs = await SharedPreferences.getInstance();
+    final lastHour = prefs.getInt('last_hour');
+    final lastMinute = prefs.getInt('last_minute');
+    if (lastHour != null && lastMinute != null) {
+      initial = TimeOfDay(hour: lastHour, minute: lastMinute);
+    }
+
     final picked = await showTimePicker(
       context: context,
-      initialTime: TimeOfDay.now(),
+      initialTime: initial,
+      builder: (context, child) {
+        return MediaQuery(
+          data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: false),
+          child: child!,
+        );
+      },
     );
+
     if (picked != null) {
-      final hour = picked.hour.toString().padLeft(2, '0');
+      await prefs.setInt('last_hour', picked.hour);
+      await prefs.setInt('last_minute', picked.minute);
+
+      final hour12 = picked.hourOfPeriod == 0 ? 12 : picked.hourOfPeriod;
       final minute = picked.minute.toString().padLeft(2, '0');
-      controller.text = '$hour:$minute';
+      final period = picked.period == DayPeriod.am ? 'AM' : 'PM';
+      controller.text = '$hour12:$minute $period';
     }
   }
 
@@ -173,24 +195,26 @@ class _FillSlotScreenState extends State<FillSlotScreen> {
             const SizedBox(height: 12),
             TextField(
               controller: _startTimeController,
-              readOnly: true,
-              decoration: const InputDecoration(
-                labelText: 'Start Time',
-                border: OutlineInputBorder(),
-                suffixIcon: Icon(Icons.access_time),
+              decoration: InputDecoration(
+                labelText: 'Start Time (e.g. 9:30 AM)',
+                border: const OutlineInputBorder(),
+                suffixIcon: IconButton(
+                  icon: const Icon(Icons.access_time),
+                  onPressed: () => _pickTime(_startTimeController),
+                ),
               ),
-              onTap: () => _pickTime(_startTimeController),
             ),
             const SizedBox(height: 12),
             TextField(
               controller: _endTimeController,
-              readOnly: true,
-              decoration: const InputDecoration(
-                labelText: 'End Time',
-                border: OutlineInputBorder(),
-                suffixIcon: Icon(Icons.access_time),
+              decoration: InputDecoration(
+                labelText: 'End Time (e.g. 9:30 AM)',
+                border: const OutlineInputBorder(),
+                suffixIcon: IconButton(
+                  icon: const Icon(Icons.access_time),
+                  onPressed: () => _pickTime(_endTimeController),
+                ),
               ),
-              onTap: () => _pickTime(_endTimeController),
             ),
             if (_errorMessage != null) ...[
               const SizedBox(height: 12),

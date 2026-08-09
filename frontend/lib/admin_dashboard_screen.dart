@@ -86,6 +86,82 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     }
   }
 
+  Future<void> _removeCC(int classId) async {
+    final url = Uri.parse('http://127.0.0.1:5000/remove_cc');
+    try {
+      final response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'class_id': classId}),
+      );
+      if (response.statusCode == 200) {
+        _fetchClasses();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('CC removed successfully.')),
+          );
+        }
+      }
+    } catch (e) {
+      // Silently fail for now
+    }
+  }
+
+  Future<void> _showCCDetails(int classId) async {
+    final url = Uri.parse('http://127.0.0.1:5000/cc_details/$classId');
+    try {
+      final response = await http.get(url);
+      if (!mounted) return;
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Class Counselor Details'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.person, color: Colors.blue),
+                  title: Text(data['name']),
+                  subtitle: const Text('Name'),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.email, color: Colors.blue),
+                  title: Text(data['email']),
+                  subtitle: const Text('Email'),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.book, color: Colors.blue),
+                  title: Text(data['subject_expertise']),
+                  subtitle: const Text('Subject Expertise'),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Close'),
+              ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                onPressed: () async {
+                  Navigator.pop(context);
+                  await _removeCC(classId);
+                },
+                child: const Text('Remove CC'),
+              ),
+            ],
+          ),
+        );
+      }
+    } catch (e) {
+      // Silently fail for now
+    }
+  }
+
   Future<void> _inviteCC(int classId, int facultyId) async {
     final url = Uri.parse('http://127.0.0.1:5000/admin_invite_cc');
     try {
@@ -484,9 +560,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         hasCC
-                            ? Chip(
+                            ? ActionChip(
                                 label: const Text('CC Assigned'),
                                 backgroundColor: Colors.green.shade100,
+                                onPressed: () =>
+                                    _showCCDetails(cls['class_id']),
                               )
                             : ActionChip(
                                 label: const Text('Unassigned'),
@@ -511,6 +589,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                               builder: (context) => ClassCoursesScreen(
                                 classId: cls['class_id'],
                                 className: '${cls['year']} - ${cls['section']}',
+                                collegeId: widget.collegeId,
                               ),
                             ),
                           ),

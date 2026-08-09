@@ -1,14 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-import 'faculty_class_courses_screen.dart';
 import 'faculty_my_schedule_screen.dart';
 import 'faculty_open_slots_screen.dart';
 import 'faculty_pending_leaves_screen.dart';
 import 'faculty_swap_responses_screen.dart';
 import 'browse_timetables_screen.dart';
+import 'browse_classes_screen.dart';
+import 'admin_timetable_view_screen.dart';
 import 'session_manager.dart';
 import 'main.dart';
+import 'notification_bell.dart';
 
 class FacultyDashboardScreen extends StatefulWidget {
   final int facultyId;
@@ -27,13 +29,13 @@ class FacultyDashboardScreen extends StatefulWidget {
 }
 
 class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
-  List<dynamic> _classes = [];
+  List<dynamic> _relatedClasses = [];
   bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
-    _fetchClasses();
+    _fetchRelatedClasses();
   }
 
   Future<void> _logout() async {
@@ -47,43 +49,21 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
     }
   }
 
-  Future<void> _fetchClasses() async {
+  Future<void> _fetchRelatedClasses() async {
     setState(() => _isLoading = true);
-    final url = Uri.parse('http://127.0.0.1:5000/classes/${widget.collegeId}');
+    final url = Uri.parse(
+      'http://127.0.0.1:5000/faculty_related_classes/${widget.facultyId}',
+    );
     try {
       final response = await http.get(url);
       if (response.statusCode == 200) {
         setState(() {
-          _classes = jsonDecode(response.body);
+          _relatedClasses = jsonDecode(response.body);
           _isLoading = false;
         });
       }
     } catch (e) {
       setState(() => _isLoading = false);
-    }
-  }
-
-  Future<void> _sendCCRequest(int classId) async {
-    final url = Uri.parse('http://127.0.0.1:5000/request_cc');
-    try {
-      final response = await http.post(
-        url,
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'class_id': classId, 'faculty_id': widget.facultyId}),
-      );
-      if (response.statusCode == 200) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('CC request sent!')));
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not send request.')),
-        );
-      }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not connect to server.')),
-      );
     }
   }
 
@@ -93,6 +73,26 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
       appBar: AppBar(
         title: Text('Welcome, ${widget.facultyName}'),
         actions: [
+          NotificationBell(
+            recipientType: 'faculty',
+            recipientId: widget.facultyId,
+          ),
+          IconButton(
+            icon: const Icon(Icons.search),
+            tooltip: 'Browse Classes',
+            onPressed: () async {
+              await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => BrowseClassesScreen(
+                    facultyId: widget.facultyId,
+                    collegeId: widget.collegeId,
+                  ),
+                ),
+              );
+              _fetchRelatedClasses();
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.schedule),
             tooltip: 'My Schedule',
@@ -165,45 +165,48 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : _classes.isEmpty
-          ? const Center(child: Text('No classes available yet.'))
+          : _relatedClasses.isEmpty
+          ? const Center(
+              child: Padding(
+                padding: EdgeInsets.all(24),
+                child: Text(
+                  'You are not linked to any class yet.\nTap the search icon to browse and request a class.',
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            )
           : Padding(
               padding: const EdgeInsets.all(16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text(
-                    'Available Classes',
+                    'My Classes',
                     style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 12),
                   Expanded(
                     child: ListView.builder(
-                      itemCount: _classes.length,
+                      itemCount: _relatedClasses.length,
                       itemBuilder: (context, index) {
-                        final cls = _classes[index];
-                        final hasCC = cls['cc_faculty_id'] != null;
+                        final cls = _relatedClasses[index];
+                        final isMyCC = cls['cc_faculty_id'] == widget.facultyId;
                         return Card(
                           child: ListTile(
                             title: Text(
                               '${cls['year']} - Section ${cls['section']}',
                             ),
                             subtitle: Text(cls['department']),
-                            trailing: hasCC
-                                ? const Chip(label: Text('CC Assigned'))
-                                : ElevatedButton(
-                                    onPressed: () =>
-                                        _sendCCRequest(cls['class_id']),
-                                    child: const Text('Request CC'),
-                                  ),
+                            trailing: isMyCC
+                                ? const Chip(label: Text('CC'))
+                                : const Chip(label: Text('Teaching')),
                             onTap: () => Navigator.push(
                               context,
                               MaterialPageRoute(
-                                builder: (context) => FacultyClassCoursesScreen(
+                                builder: (context) => AdminTimetableViewScreen(
                                   classId: cls['class_id'],
                                   className:
                                       '${cls['year']} - ${cls['section']}',
-                                  facultyId: widget.facultyId,
                                 ),
                               ),
                             ),

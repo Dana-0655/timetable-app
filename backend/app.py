@@ -1,5 +1,6 @@
 from flask_cors import CORS
 import os
+# pyrefly: ignore [missing-import]
 from flask import Flask, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from flask_bcrypt import Bcrypt
@@ -65,6 +66,10 @@ class Course(db.Model):
     course_code = db.Column(db.String(30), nullable=True)
     faculty_id = db.Column(db.Integer, db.ForeignKey('faculty.faculty_id'), nullable=True)
     created_at = db.Column(db.DateTime, server_default=db.func.now())
+
+    __table_args__ = (
+        db.UniqueConstraint('class_id', 'course_name', name='unique_course_per_class'),
+    )
 
 class CourseFacultyRequest(db.Model):
     cf_request_id = db.Column(db.Integer, primary_key=True)
@@ -400,15 +405,31 @@ def resolve_cc_request():
         f"Your CC request for {class_obj.year} - {class_obj.section} was {data['decision']}",
         "cc_response"
     )
+    if cc_request.initiated_by == "faculty":
+        admin = Admin.query.filter_by(college_id=class_obj.college_id).first()
+        if admin:
+            create_notification(
+                "admin", admin.admin_id,
+                f"{faculty.name}'s CC request for {class_obj.year} - {class_obj.section} was {data['decision']}",
+                "cc_response"
+            )
 
     return jsonify({"message": f"CC request {data['decision']} successfully!"})
-
+    
 @app.route("/add_course", methods=["POST"])
 def add_course():
     data = request.get_json()
+
+    existing = Course.query.filter_by(
+        class_id=data["class_id"],
+        course_name=data["course_name"].strip()
+    ).first()
+    if existing:
+        return jsonify({"message": "Course already exists", "course_id": existing.course_id})
+
     new_course = Course(
         class_id=data["class_id"],
-        course_name=data["course_name"]
+        course_name=data["course_name"].strip()
     )
     db.session.add(new_course)
     db.session.commit()
@@ -479,7 +500,15 @@ def resolve_course_faculty_request():
         f"Your request to teach {course.course_name} was {data['decision']}",
         "course_response"
     )
-
+    if cf_request.initiated_by == "faculty":
+        class_obj = Class.query.get(course.class_id)
+        admin = Admin.query.filter_by(college_id=class_obj.college_id).first()
+        if admin:
+            create_notification(
+                "admin", admin.admin_id,
+                f"{faculty.name}'s request to teach {course.course_name} was {data['decision']}",
+                "course_response"
+            )
     return jsonify({"message": f"Course faculty request {data['decision']} successfully!"})
 
 @app.route("/set_timetable_config", methods=["POST"])
@@ -918,20 +947,29 @@ def fill_period_slot():
     if not entry:
         return jsonify({"error": "Entry not found"}), 404
 
-    new_course = Course(
+    # Reuse an existing course with the same name in this class, if one exists
+    existing_course = Course.query.filter_by(
         class_id=entry.class_id,
-        course_name=data["course_name"],
-        course_code=data.get("course_code", "")
-    )
-    db.session.add(new_course)
-    db.session.flush()
+        course_name=data["course_name"].strip()
+    ).first()
 
-    entry.course_id = new_course.course_id
+    if existing_course:
+        entry.course_id = existing_course.course_id
+    else:
+        new_course = Course(
+            class_id=entry.class_id,
+            course_name=data["course_name"].strip(),
+            course_code=data.get("course_code", "")
+        )
+        db.session.add(new_course)
+        db.session.flush()
+        entry.course_id = new_course.course_id
+
     entry.start_time = data["start_time"]
     entry.end_time = data["end_time"]
 
     db.session.commit()
-    return jsonify({"message": "Period filled successfully!"})\
+    return jsonify({"message": "Period filled successfully!"})
         
 @app.route("/fill_break_slot", methods=["POST"])
 def fill_break_slot():
@@ -1091,12 +1129,17 @@ def delete_timetable_entry():
     if not entry:
         return jsonify({"error": "Entry not found"}), 404
 
-    if entry.course_id:
-        course = Course.query.get(entry.course_id)
-        if course:
-            db.session.delete(course)
-
+    course_id = entry.course_id
     db.session.delete(entry)
+    db.session.flush()
+
+    if course_id:
+        remaining_uses = TimetableEntry.query.filter_by(course_id=course_id).count()
+        if remaining_uses == 0:
+            course = Course.query.get(course_id)
+            if course:
+                db.session.delete(course)
+
     db.session.commit()
     return jsonify({"message": "Slot deleted successfully!"})
 
@@ -1108,13 +1151,21 @@ def delete_day_schedule():
     day_of_week = data["day_of_week"]
 
     entries = TimetableEntry.query.filter_by(class_id=class_id, day_of_week=day_of_week).all()
+    course_ids_to_check = set()
 
     for entry in entries:
         if entry.course_id:
-            course = Course.query.get(entry.course_id)
+            course_ids_to_check.add(entry.course_id)
+        db.session.delete(entry)
+
+    db.session.flush()
+
+    for course_id in course_ids_to_check:
+        remaining_uses = TimetableEntry.query.filter_by(course_id=course_id).count()
+        if remaining_uses == 0:
+            course = Course.query.get(course_id)
             if course:
                 db.session.delete(course)
-        db.session.delete(entry)
 
     db.session.commit()
     return jsonify({"message": f"{day_of_week} schedule deleted successfully!"})
@@ -1141,6 +1192,28 @@ def admin_invite_cc():
 
     return jsonify({"message": "Invitation sent to faculty!", "request_id": new_request.cc_request_id})
 
+@app.route("/admin_invite_course_faculty", methods=["POST"])
+def admin_invite_course_faculty():
+    data = request.get_json()
+
+    new_request = CourseFacultyRequest(
+        course_id=data["course_id"],
+        faculty_id=data["faculty_id"],
+        initiated_by="admin",
+        status="pending"
+    )
+    db.session.add(new_request)
+    db.session.commit()
+
+    course = Course.query.get(data["course_id"])
+    create_notification(
+        "faculty", data["faculty_id"],
+        f"You've been invited to teach {course.course_name}",
+        "course_invite"
+    )
+
+    return jsonify({"message": "Invitation sent to faculty!", "request_id": new_request.cf_request_id})
+
 @app.route("/faculty_cc_invites/<int:faculty_id>", methods=["GET"])
 def get_faculty_cc_invites(faculty_id):
     requests = CCRequest.query.filter_by(faculty_id=faculty_id, status="pending", initiated_by="admin").all()
@@ -1151,6 +1224,27 @@ def get_faculty_cc_invites(faculty_id):
             "cc_request_id": r.cc_request_id,
             "class_id": r.class_id,
             "class_name": f"{class_obj.year} - {class_obj.section}"
+        })
+    return jsonify(result)
+
+@app.route("/faculty_related_classes/<int:faculty_id>", methods=["GET"])
+def get_faculty_related_classes(faculty_id):
+    cc_classes = Class.query.filter_by(cc_faculty_id=faculty_id).all()
+
+    course_class_ids = db.session.query(Course.class_id).filter_by(faculty_id=faculty_id).distinct().all()
+    course_class_ids = [c[0] for c in course_class_ids]
+    course_classes = Class.query.filter(Class.class_id.in_(course_class_ids)).all() if course_class_ids else []
+
+    merged = {c.class_id: c for c in cc_classes + course_classes}.values()
+
+    result = []
+    for c in merged:
+        result.append({
+            "class_id": c.class_id,
+            "year": c.year,
+            "section": c.section,
+            "department": c.department,
+            "cc_faculty_id": c.cc_faculty_id
         })
     return jsonify(result)
     
@@ -1192,6 +1286,123 @@ def mark_notification_read():
         notif.is_read = True
         db.session.commit()
     return jsonify({"message": "Marked as read"})
+
+@app.route("/course_detail/<int:course_id>", methods=["GET"])
+def get_course_detail(course_id):
+    course = Course.query.get(course_id)
+    if not course:
+        return jsonify({"error": "Course not found"}), 404
+
+    faculty_info = None
+    if course.faculty_id:
+        faculty = Faculty.query.get(course.faculty_id)
+        faculty_info = {
+            "name": faculty.name,
+            "email": faculty.email,
+            "subject_expertise": faculty.subject_expertise or "Not specified"
+        }
+
+    return jsonify({
+        "course_name": course.course_name,
+        "course_code": course.course_code or "N/A",
+        "faculty": faculty_info
+    })
+
+@app.route("/cc_details/<int:class_id>", methods=["GET"])
+def get_cc_details(class_id):
+    class_obj = Class.query.get(class_id)
+    if not class_obj or not class_obj.cc_faculty_id:
+        return jsonify({"error": "No CC assigned"}), 404
+
+    faculty = Faculty.query.get(class_obj.cc_faculty_id)
+    return jsonify({
+        "faculty_id": faculty.faculty_id,
+        "name": faculty.name,
+        "email": faculty.email,
+        "subject_expertise": faculty.subject_expertise or "Not specified"
+    })
+
+@app.route("/remove_cc", methods=["POST"])
+def remove_cc():
+    data = request.get_json()
+    class_obj = Class.query.get(data["class_id"])
+    if not class_obj:
+        return jsonify({"error": "Class not found"}), 404
+
+    class_obj.cc_faculty_id = None
+    db.session.commit()
+    return jsonify({"message": "CC removed successfully!"})
+
+@app.route("/class_updates/<int:class_id>", methods=["GET"])
+def get_class_updates(class_id):
+    entries = TimetableEntry.query.filter_by(class_id=class_id).all()
+    entry_ids = [e.entry_id for e in entries]
+
+    updates = []
+
+    # Confirmed cover requests (substitute assigned)
+    confirmed_leaves = Leave.query.filter(
+        Leave.entry_id.in_(entry_ids),
+        Leave.status == "confirmed"
+    ).order_by(Leave.created_at.desc()).limit(10).all()
+
+    for leave in confirmed_leaves:
+        entry = TimetableEntry.query.get(leave.entry_id)
+        original = Faculty.query.get(leave.faculty_id)
+        substitute = Faculty.query.get(leave.confirmed_faculty_id) if leave.confirmed_faculty_id else None
+        course = Course.query.get(entry.course_id) if entry.course_id else None
+
+        if substitute and course:
+            updates.append({
+                "type": "substitute_confirmed",
+                "message": f"{original.name} is absent for {course.course_name} "
+                           f"({entry.day_of_week} Period {entry.period_no}). "
+                           f"{substitute.name} will take the class.",
+                "created_at": leave.created_at.strftime("%Y-%m-%d %H:%M") if leave.created_at else ""
+            })
+
+    # Open leaves with no substitute yet (free period)
+    open_leaves = Leave.query.filter(
+        Leave.entry_id.in_(entry_ids),
+        Leave.status.in_(["open", "pending_requests"])
+    ).order_by(Leave.created_at.desc()).limit(10).all()
+
+    for leave in open_leaves:
+        entry = TimetableEntry.query.get(leave.entry_id)
+        original = Faculty.query.get(leave.faculty_id)
+        course = Course.query.get(entry.course_id) if entry.course_id else None
+
+        if course:
+            updates.append({
+                "type": "free_period",
+                "message": f"{original.name} is absent for {course.course_name} "
+                           f"({entry.day_of_week} Period {entry.period_no}). "
+                           f"No substitute assigned yet.",
+                "created_at": leave.created_at.strftime("%Y-%m-%d %H:%M") if leave.created_at else ""
+            })
+
+    # Swapped periods
+    swaps = SwapRequest.query.filter(
+        db.or_(
+            SwapRequest.requester_entry_id.in_(entry_ids),
+            SwapRequest.target_entry_id.in_(entry_ids)
+        ),
+        SwapRequest.status == "accepted"
+    ).order_by(SwapRequest.resolved_at.desc()).limit(10).all()
+
+    for swap in swaps:
+        requester = Faculty.query.get(swap.requester_faculty_id)
+        target = Faculty.query.get(swap.target_faculty_id)
+        updates.append({
+            "type": "swap",
+            "message": f"Period swap confirmed between {requester.name} and {target.name}.",
+            "created_at": swap.resolved_at.strftime("%Y-%m-%d %H:%M") if swap.resolved_at else ""
+        })
+
+    # Sort all combined updates by time, most recent first
+    updates.sort(key=lambda x: x["created_at"], reverse=True)
+
+    return jsonify(updates[:15])
 
 if os.environ.get('WERKZEUG_RUN_MAIN') == 'true' or not app.debug:
     scheduler = BackgroundScheduler()

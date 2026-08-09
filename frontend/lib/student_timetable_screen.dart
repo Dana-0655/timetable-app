@@ -18,6 +18,7 @@ class StudentTimetableScreen extends StatefulWidget {
 
 class _StudentTimetableScreenState extends State<StudentTimetableScreen> {
   List<dynamic> _entries = [];
+  List<dynamic> _updates = [];
   bool _isLoading = true;
   String? _errorMessage;
   Timer? _refreshTimer;
@@ -26,8 +27,10 @@ class _StudentTimetableScreenState extends State<StudentTimetableScreen> {
   void initState() {
     super.initState();
     _fetchTimetable();
+    _fetchUpdates();
     _refreshTimer = Timer.periodic(const Duration(seconds: 15), (timer) {
       _fetchTimetable();
+      _fetchUpdates();
     });
   }
 
@@ -35,6 +38,91 @@ class _StudentTimetableScreenState extends State<StudentTimetableScreen> {
   void dispose() {
     _refreshTimer?.cancel();
     super.dispose();
+  }
+
+  Future<void> _fetchUpdates() async {
+    final url = Uri.parse(
+      'http://127.0.0.1:5000/class_updates/${widget.classId}',
+    );
+    try {
+      final response = await http.get(url);
+      if (response.statusCode == 200) {
+        setState(() {
+          _updates = jsonDecode(response.body);
+        });
+      }
+    } catch (e) {
+      // Silently fail for now
+    }
+  }
+
+  IconData _iconForUpdate(String type) {
+    switch (type) {
+      case 'substitute_confirmed':
+        return Icons.event_available;
+      case 'free_period':
+        return Icons.free_breakfast;
+      case 'swap':
+        return Icons.swap_horiz;
+      default:
+        return Icons.notifications;
+    }
+  }
+
+  Color _colorForUpdate(String type) {
+    switch (type) {
+      case 'substitute_confirmed':
+        return Colors.green;
+      case 'free_period':
+        return Colors.orange;
+      case 'swap':
+        return Colors.blue;
+      default:
+        return Colors.grey;
+    }
+  }
+
+  void _showUpdatesSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.6,
+        minChildSize: 0.3,
+        maxChildSize: 0.9,
+        expand: false,
+        builder: (context, scrollController) => Column(
+          children: [
+            const Padding(
+              padding: EdgeInsets.all(16),
+              child: Text(
+                'Recent Updates',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+            ),
+            Expanded(
+              child: _updates.isEmpty
+                  ? const Center(child: Text('No recent updates.'))
+                  : ListView.builder(
+                      controller: scrollController,
+                      itemCount: _updates.length,
+                      itemBuilder: (context, index) {
+                        final u = _updates[index];
+                        return ListTile(
+                          leading: Icon(
+                            _iconForUpdate(u['type']),
+                            color: _colorForUpdate(u['type']),
+                          ),
+                          title: Text(u['message']),
+                          subtitle: Text(u['created_at']),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _fetchTimetable() async {
@@ -61,6 +149,53 @@ class _StudentTimetableScreenState extends State<StudentTimetableScreen> {
     }
   }
 
+  Future<void> _showCourseInfo(int courseId) async {
+    final url = Uri.parse('http://127.0.0.1:5000/course_detail/$courseId');
+    try {
+      final response = await http.get(url);
+      if (!mounted) return;
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final faculty = data['faculty'];
+
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: Text(data['course_name']),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Course Code: ${data['course_code']}'),
+                const SizedBox(height: 12),
+                if (faculty != null) ...[
+                  const Text(
+                    'Faculty',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 4),
+                  Text('Name: ${faculty['name']}'),
+                  Text('Email: ${faculty['email']}'),
+                  Text('Expertise: ${faculty['subject_expertise']}'),
+                ] else
+                  const Text('No faculty assigned yet.'),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Close'),
+              ),
+            ],
+          ),
+        );
+      }
+    } catch (e) {
+      // Silently fail for now
+    }
+  }
+
   Color _getColorForStatus(String status) {
     switch (status) {
       case 'open_leave':
@@ -77,7 +212,41 @@ class _StudentTimetableScreenState extends State<StudentTimetableScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(widget.className)),
+      appBar: AppBar(
+        title: Text(widget.className),
+        actions: [
+          Stack(
+            children: [
+              IconButton(
+                icon: const Icon(Icons.notifications),
+                tooltip: 'Recent Updates',
+                onPressed: _showUpdatesSheet,
+              ),
+              if (_updates.isNotEmpty)
+                Positioned(
+                  right: 6,
+                  top: 6,
+                  child: Container(
+                    padding: const EdgeInsets.all(2),
+                    decoration: BoxDecoration(
+                      color: Colors.red,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    constraints: const BoxConstraints(
+                      minWidth: 16,
+                      minHeight: 16,
+                    ),
+                    child: Text(
+                      '${_updates.length}',
+                      style: const TextStyle(color: Colors.white, fontSize: 10),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _errorMessage != null
@@ -102,6 +271,13 @@ class _StudentTimetableScreenState extends State<StudentTimetableScreen> {
                     subtitle: Text(
                       '${entry['course_name'] ?? 'Unassigned'} • ${entry['faculty_name'] ?? 'No faculty'}',
                     ),
+                    trailing: entry['course_id'] != null
+                        ? IconButton(
+                            icon: const Icon(Icons.info_outline),
+                            onPressed: () =>
+                                _showCourseInfo(entry['course_id']),
+                          )
+                        : null,
                   ),
                 );
               },
