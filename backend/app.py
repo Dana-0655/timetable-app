@@ -144,22 +144,25 @@ class Semester(db.Model):
 
 class UserNotification(db.Model):
     notification_id = db.Column(db.Integer, primary_key=True)
-    recipient_type = db.Column(db.String(20), nullable=False)  # 'admin' or 'faculty'
+    recipient_type = db.Column(db.String(20), nullable=False)
     recipient_id = db.Column(db.Integer, nullable=False)
     message = db.Column(db.String(255), nullable=False)
-    notif_type = db.Column(db.String(30), nullable=False)  # 'cc_invite', 'cc_response', 'course_invite', 'course_response', 'cover_confirmed', 'swap_request', 'swap_response'
+    notif_type = db.Column(db.String(30), nullable=False)
+    reference_id = db.Column(db.Integer, nullable=True)  # NEW: cc_request_id / cf_request_id / swap_id
     is_read = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, server_default=db.func.now())
 
-def create_notification(recipient_type, recipient_id, message, notif_type):
+def create_notification(recipient_type, recipient_id, message, notif_type, reference_id=None):
     notif = UserNotification(
         recipient_type=recipient_type,
         recipient_id=recipient_id,
         message=message,
-        notif_type=notif_type
+        notif_type=notif_type,
+        reference_id=reference_id
     )
     db.session.add(notif)
     db.session.commit()
+
 def check_pending_leaves():
     with app.app_context():
         pending_leaves = Leave.query.filter(Leave.status != "confirmed").all()
@@ -206,6 +209,84 @@ def check_pending_leaves():
 @app.route("/")
 def home():
     return "Timetable App Backend is Running!"
+
+@app.route("/admin_invite_cc", methods=["POST"])
+def admin_invite_cc():
+    data = request.get_json()
+
+    new_request = CCRequest(
+        class_id=data["class_id"],
+        faculty_id=data["faculty_id"],
+        initiated_by="admin",
+        status="pending"
+    )
+    db.session.add(new_request)
+    db.session.commit()
+
+    class_obj = Class.query.get(data["class_id"])
+    create_notification(
+        "faculty", data["faculty_id"],
+        f"You've been invited to be CC for {class_obj.year} - {class_obj.section}",
+        "cc_invite", reference_id=new_request.cc_request_id
+    )
+
+    return jsonify({"message": "Invitation sent to faculty!", "request_id": new_request.cc_request_id})
+
+@app.route("/admin_invite_course_faculty", methods=["POST"])
+def admin_invite_course_faculty():
+    data = request.get_json()
+
+    new_request = CourseFacultyRequest(
+        course_id=data["course_id"],
+        faculty_id=data["faculty_id"],
+        initiated_by="admin",
+        status="pending"
+    )
+    db.session.add(new_request)
+    db.session.commit()
+
+    course = Course.query.get(data["course_id"])
+    create_notification(
+        "faculty", data["faculty_id"],
+        f"You've been invited to teach {course.course_name}",
+        "course_invite", reference_id=new_request.cf_request_id
+    )
+
+    return jsonify({"message": "Invitation sent to faculty!", "request_id": new_request.cf_request_id})
+
+@app.route("/faculty_cc_invites/<int:faculty_id>", methods=["GET"])
+def get_faculty_cc_invites(faculty_id):
+    requests = CCRequest.query.filter_by(faculty_id=faculty_id, status="pending", initiated_by="admin").all()
+    result = []
+    for r in requests:
+        class_obj = Class.query.get(r.class_id)
+        result.append({
+            "cc_request_id": r.cc_request_id,
+            "class_id": r.class_id,
+            "class_name": f"{class_obj.year} - {class_obj.section}"
+        })
+    return jsonify(result)
+
+@app.route("/faculty_related_classes/<int:faculty_id>", methods=["GET"])
+def get_faculty_related_classes(faculty_id):
+    cc_classes = Class.query.filter_by(cc_faculty_id=faculty_id).all()
+
+    course_class_ids = db.session.query(Course.class_id).filter_by(faculty_id=faculty_id).distinct().all()
+    course_class_ids = [c[0] for c in course_class_ids]
+    course_classes = Class.query.filter(Class.class_id.in_(course_class_ids)).all() if course_class_ids else []
+
+    merged = {c.class_id: c for c in cc_classes + course_classes}.values()
+
+    result = []
+    for c in merged:
+        result.append({
+            "class_id": c.class_id,
+            "year": c.year,
+            "section": c.section,
+            "department": c.department,
+            "cc_faculty_id": c.cc_faculty_id
+        })
+    return jsonify(result)
 
 @app.route("/add_college", methods=["POST"])
 def add_college():
@@ -341,6 +422,7 @@ def get_classes(college_id):
 
 @app.route("/request_cc", methods=["POST"])
 def request_cc():
+  
     data = request.get_json()
 
     new_request = CCRequest(
@@ -356,11 +438,11 @@ def request_cc():
     class_obj = Class.query.get(data["class_id"])
     admin = Admin.query.filter_by(college_id=class_obj.college_id).first()
     if admin:
-        create_notification(
-            "admin", admin.admin_id,
-            f"{faculty.name} requested to be CC for {class_obj.year} - {class_obj.section}",
-            "cc_invite"
-        )
+         create_notification(
+        "admin", admin.admin_id,
+        f"{faculty.name} requested to be CC for {class_obj.year} - {class_obj.section}",
+        "cc_invite", reference_id=new_request.cc_request_id
+    )
 
     return jsonify({"message": "CC request sent successfully!", "request_id": new_request.cc_request_id})
 
@@ -455,7 +537,7 @@ def request_course_faculty():
         create_notification(
             "admin", admin.admin_id,
             f"{faculty.name} requested to teach {course.course_name}",
-            "course_invite"
+            "course_invite", reference_id=new_request.cf_request_id
         )
 
     return jsonify({"message": "Course faculty request sent!", "request_id": new_request.cf_request_id})
@@ -719,7 +801,7 @@ def send_swap_request():
     create_notification(
         "faculty", data["target_faculty_id"],
         f"{requester.name} sent you a swap request",
-        "swap_request"
+        "swap_request", reference_id=new_swap.swap_id
     )
 
     return jsonify({"message": "Swap request sent!", "swap_id": new_swap.swap_id})
@@ -1169,84 +1251,6 @@ def delete_day_schedule():
 
     db.session.commit()
     return jsonify({"message": f"{day_of_week} schedule deleted successfully!"})
-
-@app.route("/admin_invite_cc", methods=["POST"])
-def admin_invite_cc():
-    data = request.get_json()
-
-    new_request = CCRequest(
-        class_id=data["class_id"],
-        faculty_id=data["faculty_id"],
-        initiated_by="admin",
-        status="pending"
-    )
-    db.session.add(new_request)
-    db.session.commit()
-
-    class_obj = Class.query.get(data["class_id"])
-    create_notification(
-        "faculty", data["faculty_id"],
-        f"You've been invited to be CC for {class_obj.year} - {class_obj.section}",
-        "cc_invite"
-    )
-
-    return jsonify({"message": "Invitation sent to faculty!", "request_id": new_request.cc_request_id})
-
-@app.route("/admin_invite_course_faculty", methods=["POST"])
-def admin_invite_course_faculty():
-    data = request.get_json()
-
-    new_request = CourseFacultyRequest(
-        course_id=data["course_id"],
-        faculty_id=data["faculty_id"],
-        initiated_by="admin",
-        status="pending"
-    )
-    db.session.add(new_request)
-    db.session.commit()
-
-    course = Course.query.get(data["course_id"])
-    create_notification(
-        "faculty", data["faculty_id"],
-        f"You've been invited to teach {course.course_name}",
-        "course_invite"
-    )
-
-    return jsonify({"message": "Invitation sent to faculty!", "request_id": new_request.cf_request_id})
-
-@app.route("/faculty_cc_invites/<int:faculty_id>", methods=["GET"])
-def get_faculty_cc_invites(faculty_id):
-    requests = CCRequest.query.filter_by(faculty_id=faculty_id, status="pending", initiated_by="admin").all()
-    result = []
-    for r in requests:
-        class_obj = Class.query.get(r.class_id)
-        result.append({
-            "cc_request_id": r.cc_request_id,
-            "class_id": r.class_id,
-            "class_name": f"{class_obj.year} - {class_obj.section}"
-        })
-    return jsonify(result)
-
-@app.route("/faculty_related_classes/<int:faculty_id>", methods=["GET"])
-def get_faculty_related_classes(faculty_id):
-    cc_classes = Class.query.filter_by(cc_faculty_id=faculty_id).all()
-
-    course_class_ids = db.session.query(Course.class_id).filter_by(faculty_id=faculty_id).distinct().all()
-    course_class_ids = [c[0] for c in course_class_ids]
-    course_classes = Class.query.filter(Class.class_id.in_(course_class_ids)).all() if course_class_ids else []
-
-    merged = {c.class_id: c for c in cc_classes + course_classes}.values()
-
-    result = []
-    for c in merged:
-        result.append({
-            "class_id": c.class_id,
-            "year": c.year,
-            "section": c.section,
-            "department": c.department,
-            "cc_faculty_id": c.cc_faculty_id
-        })
-    return jsonify(result)
     
 @app.route("/notifications/<string:recipient_type>/<int:recipient_id>", methods=["GET"])
 def get_notifications(recipient_type, recipient_id):
@@ -1261,6 +1265,7 @@ def get_notifications(recipient_type, recipient_id):
             "notification_id": n.notification_id,
             "message": n.message,
             "notif_type": n.notif_type,
+            "reference_id": n.reference_id,
             "is_read": n.is_read,
             "created_at": n.created_at.strftime("%Y-%m-%d %H:%M") if n.created_at else ""
         })

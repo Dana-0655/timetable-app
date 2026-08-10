@@ -8,6 +8,7 @@ import 'main.dart';
 import 'admin_timetable_view_screen.dart';
 import 'promote_faculty_screen.dart';
 import 'admin_add_faculty_screen.dart';
+import 'notification_bell.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
   final int adminId;
@@ -452,6 +453,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       appBar: AppBar(
         title: Text('Welcome, ${widget.adminName}'),
         actions: [
+          NotificationBell(recipientType: 'admin', recipientId: widget.adminId),
           IconButton(
             icon: const Icon(Icons.person_add),
             tooltip: 'Add Faculty',

@@ -40,6 +40,78 @@ class _NotificationBellState extends State<NotificationBell> {
     }
   }
 
+  Future<void> _resolveFromNotification(
+    BuildContext sheetContext,
+    Map notif,
+    String decision,
+  ) async {
+    String endpoint;
+    Map<String, dynamic> body;
+
+    switch (notif['notif_type']) {
+      case 'cc_invite':
+        endpoint = '/resolve_cc_request';
+        body = {'cc_request_id': notif['reference_id'], 'decision': decision};
+        break;
+      case 'course_invite':
+        endpoint = '/resolve_course_faculty_request';
+        body = {'cf_request_id': notif['reference_id'], 'decision': decision};
+        break;
+      case 'swap_request':
+        endpoint = '/resolve_swap_request';
+        body = {'swap_id': notif['reference_id'], 'decision': decision};
+        break;
+      default:
+        return;
+    }
+
+    final url = Uri.parse('http://127.0.0.1:5000$endpoint');
+    try {
+      final response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(body),
+      );
+
+      if (response.statusCode == 200) {
+        await http.post(
+          Uri.parse('http://127.0.0.1:5000/mark_notification_read'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({'notification_id': notif['notification_id']}),
+        );
+        _fetchUnreadCount();
+        if (sheetContext.mounted) Navigator.of(sheetContext).pop();
+      } else {
+        if (sheetContext.mounted) {
+          String errorMsg = 'Could not update this request.';
+          try {
+            final decoded = jsonDecode(response.body);
+            if (decoded['error'] != null) errorMsg = decoded['error'];
+          } catch (_) {
+            // keep the default message if body isn't valid JSON
+          }
+          ScaffoldMessenger.of(sheetContext).showSnackBar(
+            SnackBar(
+              content: Text(errorMsg),
+              backgroundColor: Colors.redAccent,
+              behavior: SnackBarBehavior.floating,
+              margin: const EdgeInsets.all(12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (sheetContext.mounted) {
+        ScaffoldMessenger.of(
+          sheetContext,
+        ).showSnackBar(const SnackBar(content: Text('Network error')));
+      }
+    }
+  }
+
   IconData _iconFor(String type) {
     switch (type) {
       case 'cc_invite':
@@ -58,6 +130,60 @@ class _NotificationBellState extends State<NotificationBell> {
     }
   }
 
+  Widget _buildNotificationTile(BuildContext sheetContext, Map notif) {
+    final isRead = notif['is_read'] == true;
+    final isActionable =
+        [
+          'cc_invite',
+          'course_invite',
+          'swap_request',
+        ].contains(notif['notif_type']) &&
+        notif['reference_id'] != null;
+
+    return ListTile(
+      leading: Icon(
+        _iconFor(notif['notif_type']),
+        color: isRead ? Colors.grey : Colors.blue,
+      ),
+      title: Text(
+        notif['message'],
+        style: TextStyle(
+          fontWeight: isRead ? FontWeight.normal : FontWeight.bold,
+        ),
+      ),
+      subtitle: Text(notif['created_at']),
+      trailing: isActionable
+          ? Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.check_circle, color: Colors.green),
+                  tooltip: 'Accept',
+                  onPressed: () =>
+                      _resolveFromNotification(sheetContext, notif, 'accepted'),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.cancel, color: Colors.red),
+                  tooltip: 'Reject',
+                  onPressed: () =>
+                      _resolveFromNotification(sheetContext, notif, 'rejected'),
+                ),
+              ],
+            )
+          : null,
+      onTap: () async {
+        if (!isRead) {
+          await http.post(
+            Uri.parse('http://127.0.0.1:5000/mark_notification_read'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({'notification_id': notif['notification_id']}),
+          );
+          _fetchUnreadCount();
+        }
+      },
+    );
+  }
+
   void _openNotifications() async {
     final url = Uri.parse(
       'http://127.0.0.1:5000/notifications/${widget.recipientType}/${widget.recipientId}',
@@ -72,7 +198,7 @@ class _NotificationBellState extends State<NotificationBell> {
         showModalBottomSheet(
           context: context,
           isScrollControlled: true,
-          builder: (context) => DraggableScrollableSheet(
+          builder: (sheetContext) => DraggableScrollableSheet(
             initialChildSize: 0.6,
             minChildSize: 0.3,
             maxChildSize: 0.9,
@@ -93,38 +219,9 @@ class _NotificationBellState extends State<NotificationBell> {
                           controller: scrollController,
                           itemCount: notifs.length,
                           itemBuilder: (context, index) {
-                            final n = notifs[index];
-                            final isRead = n['is_read'] == true;
-                            return ListTile(
-                              leading: Icon(
-                                _iconFor(n['notif_type']),
-                                color: isRead ? Colors.grey : Colors.blue,
-                              ),
-                              title: Text(
-                                n['message'],
-                                style: TextStyle(
-                                  fontWeight: isRead
-                                      ? FontWeight.normal
-                                      : FontWeight.bold,
-                                ),
-                              ),
-                              subtitle: Text(n['created_at']),
-                              onTap: () async {
-                                if (!isRead) {
-                                  await http.post(
-                                    Uri.parse(
-                                      'http://127.0.0.1:5000/mark_notification_read',
-                                    ),
-                                    headers: {
-                                      'Content-Type': 'application/json',
-                                    },
-                                    body: jsonEncode({
-                                      'notification_id': n['notification_id'],
-                                    }),
-                                  );
-                                  _fetchUnreadCount();
-                                }
-                              },
+                            return _buildNotificationTile(
+                              sheetContext,
+                              notifs[index],
                             );
                           },
                         ),
