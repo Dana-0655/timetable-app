@@ -25,7 +25,6 @@ class _AdminAddFacultyScreenState extends State<AdminAddFacultyScreen> {
 
   bool _isSaving = false;
   List<String> _addedNames = [];
-  
 
   Future<void> _addFaculty() async {
     if (_nameController.text.trim().isEmpty ||

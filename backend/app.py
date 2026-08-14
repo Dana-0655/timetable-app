@@ -459,44 +459,6 @@ def get_cc_requests(class_id):
             "status": r.status
         })
     return jsonify(result)
-
-@app.route("/resolve_cc_request", methods=["POST"])
-def resolve_cc_request():
-    data = request.get_json()
-
-    cc_request = CCRequest.query.get(data["cc_request_id"])
-    if not cc_request:
-        return jsonify({"error": "Request not found"}), 404
-
-    if cc_request.status != "pending":
-        return jsonify({"error": "This request has already been resolved"}), 400
-
-    cc_request.status = data["decision"]
-    cc_request.resolved_at = db.func.now()
-
-    if data["decision"] == "accepted":
-        class_obj = Class.query.get(cc_request.class_id)
-        class_obj.cc_faculty_id = cc_request.faculty_id
-
-    db.session.commit()
-
-    faculty = Faculty.query.get(cc_request.faculty_id)
-    class_obj = Class.query.get(cc_request.class_id)
-    create_notification(
-        "faculty", faculty.faculty_id,
-        f"Your CC request for {class_obj.year} - {class_obj.section} was {data['decision']}",
-        "cc_response"
-    )
-    if cc_request.initiated_by == "faculty":
-        admin = Admin.query.filter_by(college_id=class_obj.college_id).first()
-        if admin:
-            create_notification(
-                "admin", admin.admin_id,
-                f"{faculty.name}'s CC request for {class_obj.year} - {class_obj.section} was {data['decision']}",
-                "cc_response"
-            )
-
-    return jsonify({"message": f"CC request {data['decision']} successfully!"})
     
 @app.route("/add_course", methods=["POST"])
 def add_course():
@@ -853,6 +815,52 @@ def resolve_swap_request():
     )
 
     return jsonify({"message": f"Swap request {data['decision']} successfully!"})
+
+@app.route("/resolve_cc_request", methods=["POST"])
+def resolve_cc_request():
+    data = request.get_json()
+
+    cc_request = CCRequest.query.get(data["cc_request_id"])
+    if not cc_request:
+        return jsonify({"error": "Request not found"}), 404
+
+    if cc_request.status != "pending":
+        return jsonify({"error": "This request has already been resolved"}), 400
+
+    cc_request.status = data["decision"]
+    cc_request.resolved_at = db.func.now()
+
+    if data["decision"] == "accepted":
+        # Clear this faculty from any OTHER class where they're currently CC
+        old_classes = Class.query.filter(
+            Class.cc_faculty_id == cc_request.faculty_id,
+            Class.class_id != cc_request.class_id
+        ).all()
+        for old_class in old_classes:
+            old_class.cc_faculty_id = None
+
+        class_obj = Class.query.get(cc_request.class_id)
+        class_obj.cc_faculty_id = cc_request.faculty_id
+
+    db.session.commit()
+
+    faculty = Faculty.query.get(cc_request.faculty_id)
+    class_obj = Class.query.get(cc_request.class_id)
+    create_notification(
+        "faculty", faculty.faculty_id,
+        f"Your CC request for {class_obj.year} - {class_obj.section} was {data['decision']}",
+        "cc_response"
+    )
+    if cc_request.initiated_by == "faculty":
+        admin = Admin.query.filter_by(college_id=class_obj.college_id).first()
+        if admin:
+            create_notification(
+                "admin", admin.admin_id,
+                f"{faculty.name}'s CC request for {class_obj.year} - {class_obj.section} was {data['decision']}",
+                "cc_response"
+            )
+
+    return jsonify({"message": f"CC request {data['decision']} successfully!"})
 
 @app.route("/mark_day_leave", methods=["POST"])
 def mark_day_leave():
@@ -1408,6 +1416,32 @@ def get_class_updates(class_id):
     updates.sort(key=lambda x: x["created_at"], reverse=True)
 
     return jsonify(updates[:15])
+
+@app.route("/faculty_current_cc/<int:faculty_id>", methods=["GET"])
+def get_faculty_current_cc(faculty_id):
+    class_obj = Class.query.filter_by(cc_faculty_id=faculty_id).first()
+    if not class_obj:
+        return jsonify({"has_cc": False})
+    return jsonify({
+        "has_cc": True,
+        "class_id": class_obj.class_id,
+        "year": class_obj.year,
+        "section": class_obj.section
+    })
+
+@app.route("/cc_request_detail/<int:cc_request_id>", methods=["GET"])
+def get_cc_request_detail(cc_request_id):
+    cc_request = CCRequest.query.get(cc_request_id)
+    if not cc_request:
+        return jsonify({"error": "Request not found"}), 404
+    class_obj = Class.query.get(cc_request.class_id)
+    return jsonify({
+        "cc_request_id": cc_request.cc_request_id,
+        "class_id": class_obj.class_id,
+        "year": class_obj.year,
+        "section": class_obj.section,
+        "status": cc_request.status
+    })
 
 if os.environ.get('WERKZEUG_RUN_MAIN') == 'true' or not app.debug:
     scheduler = BackgroundScheduler()

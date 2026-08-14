@@ -45,6 +45,13 @@ class _NotificationBellState extends State<NotificationBell> {
     Map notif,
     String decision,
   ) async {
+    // Special handling: accepting a CC invite needs to check whether this
+    // faculty is already CC somewhere before we let the accept go through.
+    if (notif['notif_type'] == 'cc_invite' && decision == 'accepted') {
+      final proceed = await _checkCcSwitchBeforeAccept(sheetContext, notif);
+      if (!proceed) return; // blocked, or user cancelled the switch dialog
+    }
+
     String endpoint;
     Map<String, dynamic> body;
 
@@ -82,6 +89,15 @@ class _NotificationBellState extends State<NotificationBell> {
         _fetchUnreadCount();
         if (sheetContext.mounted) Navigator.of(sheetContext).pop();
       } else {
+        // Whatever the reason (already resolved, etc.) this notification's
+        // action is no longer valid - mark it read so it stops looking active.
+        await http.post(
+          Uri.parse('http://127.0.0.1:5000/mark_notification_read'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({'notification_id': notif['notification_id']}),
+        );
+        _fetchUnreadCount();
+
         if (sheetContext.mounted) {
           String errorMsg = 'Could not update this request.';
           try {
@@ -112,6 +128,97 @@ class _NotificationBellState extends State<NotificationBell> {
     }
   }
 
+  /// Returns true if the accept should proceed, false if it should be
+  /// blocked or the user cancelled.
+  Future<bool> _checkCcSwitchBeforeAccept(
+    BuildContext sheetContext,
+    Map notif,
+  ) async {
+    try {
+      // 1. Find out which class this invite is actually for
+      final detailRes = await http.get(
+        Uri.parse(
+          'http://127.0.0.1:5000/cc_request_detail/${notif['reference_id']}',
+        ),
+      );
+      if (detailRes.statusCode != 200)
+        return true; // let backend reject it normally
+      final detail = jsonDecode(detailRes.body);
+
+      if (detail['status'] != 'pending') {
+        // Already resolved (e.g. a duplicate invite) - let the normal
+        // "already resolved" error path handle the message.
+        return true;
+      }
+
+      final targetClassId = detail['class_id'];
+      final targetLabel = '${detail['year']} - ${detail['section']}';
+
+      // 2. Find out if this faculty is already CC somewhere
+      final currentRes = await http.get(
+        Uri.parse(
+          'http://127.0.0.1:5000/faculty_current_cc/${widget.recipientId}',
+        ),
+      );
+      if (currentRes.statusCode != 200) return true;
+      final current = jsonDecode(currentRes.body);
+
+      if (current['has_cc'] != true) {
+        return true; // not CC anywhere yet, safe to accept directly
+      }
+
+      final currentClassId = current['class_id'];
+      final currentLabel = '${current['year']} - ${current['section']}';
+
+      // 3. Same class -> block, nothing to do
+      if (currentClassId == targetClassId) {
+        if (sheetContext.mounted) {
+          ScaffoldMessenger.of(sheetContext).showSnackBar(
+            SnackBar(
+              content: Text('You are already CC for $targetLabel.'),
+              backgroundColor: Colors.redAccent,
+              behavior: SnackBarBehavior.floating,
+              margin: const EdgeInsets.all(12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+          );
+        }
+        return false;
+      }
+
+      // 4. Different class -> confirm the switch
+      if (!sheetContext.mounted) return false;
+      final confirmed = await showDialog<bool>(
+        context: sheetContext,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Switch CC Class?'),
+          content: Text(
+            'Do you want to leave your current class counsellor position '
+            'from Class $currentLabel and take over Class $targetLabel as CC?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Switch'),
+            ),
+          ],
+        ),
+      );
+
+      return confirmed ?? false;
+    } catch (e) {
+      // If any of these checks fail, don't block the user - fall back to
+      // letting the backend's own validation handle it.
+      return true;
+    }
+  }
+
   IconData _iconFor(String type) {
     switch (type) {
       case 'cc_invite':
@@ -138,7 +245,8 @@ class _NotificationBellState extends State<NotificationBell> {
           'course_invite',
           'swap_request',
         ].contains(notif['notif_type']) &&
-        notif['reference_id'] != null;
+        notif['reference_id'] != null &&
+        !isRead;
 
     return ListTile(
       leading: Icon(
