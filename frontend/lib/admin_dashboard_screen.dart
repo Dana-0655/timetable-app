@@ -450,12 +450,42 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: const Color(0xFFF8F9FF),
       appBar: AppBar(
-        title: Text('Welcome, ${widget.adminName}'),
+        backgroundColor: const Color(0xFF3525CD),
+        foregroundColor: Colors.white,
+        elevation: 4,
+        shadowColor: const Color(0xFF3525CD).withValues(alpha: 0.3),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.2),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.admin_panel_settings_rounded, size: 20, color: Colors.white),
+            ),
+            const SizedBox(width: 10),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Welcome, ${widget.adminName}',
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+                ),
+                const Text(
+                  'Admin Portal • Scheduling Manager',
+                  style: TextStyle(fontSize: 11, color: Colors.white70),
+                ),
+              ],
+            ),
+          ],
+        ),
         actions: [
           NotificationBell(recipientType: 'admin', recipientId: widget.adminId),
           IconButton(
-            icon: const Icon(Icons.person_add),
+            icon: const Icon(Icons.person_add_rounded),
             tooltip: 'Add Faculty',
             onPressed: () => Navigator.push(
               context,
@@ -468,163 +498,308 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             ),
           ),
           IconButton(
-            icon: const Icon(Icons.admin_panel_settings),
-            tooltip: 'Give Admin Access',
+            icon: const Icon(Icons.verified_user_rounded),
+            tooltip: 'Promote Faculty',
             onPressed: () => Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (context) =>
-                    PromoteFacultyScreen(collegeId: widget.collegeId),
+                builder: (context) => PromoteFacultyScreen(collegeId: widget.collegeId),
               ),
             ),
           ),
           IconButton(
-            icon: const Icon(Icons.calendar_month),
+            icon: const Icon(Icons.calendar_month_rounded),
             tooltip: 'Manage Semesters',
             onPressed: () async {
               await Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (context) =>
-                      SemesterManagementScreen(collegeId: widget.collegeId),
+                  builder: (context) => SemesterManagementScreen(collegeId: widget.collegeId),
                 ),
               );
-              _fetchClasses(); // Refresh class list after returning (in case semester was switched)
+              _fetchClasses();
             },
           ),
           IconButton(
-            icon: const Icon(Icons.logout),
+            icon: const Icon(Icons.logout_rounded),
             tooltip: 'Logout',
             onPressed: _logout,
           ),
         ],
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
+          ? const Center(child: CircularProgressIndicator(color: Color(0xFF3525CD)))
           : !_hasActiveSemester
           ? Center(
               child: Padding(
                 padding: const EdgeInsets.all(24),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Icon(
-                      Icons.calendar_month,
-                      size: 48,
-                      color: Colors.orange,
-                    ),
-                    const SizedBox(height: 16),
-                    const Text(
-                      'Create a semester first',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
+                child: Container(
+                  padding: const EdgeInsets.all(32),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(24),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.06),
+                        blurRadius: 20,
+                        offset: const Offset(0, 8),
                       ),
-                    ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      'Classes belong to a semester. Set one up before adding classes.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: Colors.black54),
-                    ),
-                    const SizedBox(height: 16),
-                    ElevatedButton(
-                      onPressed: () async {
-                        await Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => SemesterManagementScreen(
-                              collegeId: widget.collegeId,
+                    ],
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Colors.orange.shade50,
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(Icons.calendar_month_rounded, size: 40, color: Colors.orange.shade800),
+                      ),
+                      const SizedBox(height: 16),
+                      const Text(
+                        'Active Semester Required',
+                        style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF0B1C30)),
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Create and activate an academic semester before configuring classes and timetables.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.black54, fontSize: 13),
+                      ),
+                      const SizedBox(height: 20),
+                      ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF3525CD),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        icon: const Icon(Icons.add_rounded, size: 18),
+                        label: const Text('Setup Semester Now'),
+                        onPressed: () async {
+                          await Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => SemesterManagementScreen(collegeId: widget.collegeId),
                             ),
-                          ),
-                        );
-                        _fetchClasses();
-                      },
-                      child: const Text('Create Semester'),
-                    ),
-                  ],
+                          );
+                          _fetchClasses();
+                        },
+                      ),
+                    ],
+                  ),
                 ),
               ),
             )
-          : _classes.isEmpty
-          ? const Center(child: Text('No classes yet. Tap + to add one.'))
-          : ListView.builder(
-              padding: const EdgeInsets.all(16),
-              itemCount: _classes.length,
-              itemBuilder: (context, index) {
-                final cls = _classes[index];
-                final hasCC = cls['cc_faculty_id'] != null;
-                return Card(
-                  child: ListTile(
-                    title: Text('${cls['year']} - Section ${cls['section']}'),
-                    subtitle: Text(cls['department']),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        hasCC
-                            ? ActionChip(
-                                label: const Text('CC Assigned'),
-                                backgroundColor: Colors.green.shade100,
-                                onPressed: () =>
-                                    _showCCDetails(cls['class_id']),
-                              )
-                            : ActionChip(
-                                label: const Text('Unassigned'),
-                                backgroundColor: Colors.orange.shade100,
-                                onPressed: () =>
-                                    _showInviteFacultyDialog(cls['class_id']),
-                              ),
-                        IconButton(
-                          icon: const Icon(Icons.people),
-                          tooltip: 'CC Requests',
-                          onPressed: () => _showPendingRequests(
-                            cls['class_id'],
-                            '${cls['year']} - ${cls['section']}',
-                          ),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.menu_book),
-                          tooltip: 'Manage Courses',
-                          onPressed: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => ClassCoursesScreen(
-                                classId: cls['class_id'],
-                                className: '${cls['year']} - ${cls['section']}',
-                                collegeId: widget.collegeId,
-                              ),
-                            ),
-                          ),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.delete, color: Colors.red),
-                          tooltip: 'Delete Class',
-                          onPressed: () => _confirmDeleteClass(
-                            cls['class_id'],
-                            '${cls['year']} - ${cls['section']}',
-                          ),
-                        ),
-                      ],
-                    ),
-                    onTap: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => AdminTimetableViewScreen(
-                          classId: cls['class_id'],
-                          className: '${cls['year']} - ${cls['section']}',
-                        ),
-                      ),
-                    ),
+          : Column(
+              children: [
+                // Top Metrics Overview Bar
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
                   ),
-                );
-              },
+                  child: Row(
+                    children: [
+                      _buildMetricTile('Total Classes', '${_classes.length}', Icons.groups_rounded, Colors.indigo),
+                      _buildMetricTile('Active System', 'Online', Icons.cell_tower_rounded, Colors.green),
+                      _buildMetricTile('Auto-Engine', 'Active', Icons.auto_awesome_rounded, Colors.purple),
+                    ],
+                  ),
+                ),
+
+                // Main Classes List
+                Expanded(
+                  child: _classes.isEmpty
+                      ? Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.class_outlined, size: 48, color: Colors.grey.shade400),
+                              const SizedBox(height: 12),
+                              const Text('No classes added yet. Tap + to create one.', style: TextStyle(color: Colors.grey)),
+                            ],
+                          ),
+                        )
+                      : ListView.builder(
+                          padding: const EdgeInsets.all(20),
+                          itemCount: _classes.length,
+                          itemBuilder: (context, index) {
+                            final cls = _classes[index];
+                            final hasCC = cls['cc_faculty_id'] != null;
+
+                            return TweenAnimationBuilder<double>(
+                              tween: Tween(begin: 0.0, end: 1.0),
+                              duration: Duration(milliseconds: 300 + (index * 100)),
+                              curve: Curves.easeOutCubic,
+                              builder: (context, value, child) {
+                                return Opacity(
+                                  opacity: value,
+                                  child: Transform.translate(
+                                    offset: Offset(0, 20 * (1 - value)),
+                                    child: child,
+                                  ),
+                                );
+                              },
+                              child: Container(
+                                margin: const EdgeInsets.only(bottom: 14),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(16),
+                                  border: Border.all(color: Colors.grey.shade200),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withValues(alpha: 0.04),
+                                      blurRadius: 10,
+                                      offset: const Offset(0, 4),
+                                    ),
+                                  ],
+                                ),
+                                child: ListTile(
+                                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                  leading: Container(
+                                    width: 46,
+                                    height: 46,
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF3525CD).withValues(alpha: 0.1),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: const Icon(Icons.school_rounded, color: Color(0xFF3525CD)),
+                                  ),
+                                  title: Row(
+                                    children: [
+                                      Text(
+                                        'Class ${cls['year']} - ${cls['section']}',
+                                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF0B1C30)),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: Colors.indigo.shade50,
+                                          borderRadius: BorderRadius.circular(6),
+                                        ),
+                                        child: Text(
+                                          cls['department'],
+                                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.indigo.shade800),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  subtitle: Padding(
+                                    padding: const EdgeInsets.only(top: 4),
+                                    child: Text(
+                                      hasCC ? 'Class Coordinator Assigned' : 'CC Unassigned (Tap chip to invite)',
+                                      style: TextStyle(fontSize: 12, color: hasCC ? Colors.green.shade800 : Colors.orange.shade800),
+                                    ),
+                                  ),
+                                  trailing: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      hasCC
+                                          ? ActionChip(
+                                              avatar: const Icon(Icons.check_circle_rounded, size: 16, color: Colors.green),
+                                              label: const Text('CC Active'),
+                                              backgroundColor: Colors.green.shade50,
+                                              onPressed: () => _showCCDetails(cls['class_id']),
+                                            )
+                                          : ActionChip(
+                                              avatar: const Icon(Icons.add_circle_outline_rounded, size: 16, color: Colors.orange),
+                                              label: const Text('Assign CC'),
+                                              backgroundColor: Colors.orange.shade50,
+                                              onPressed: () => _showInviteFacultyDialog(cls['class_id']),
+                                            ),
+                                      const SizedBox(width: 4),
+                                      IconButton(
+                                        icon: const Icon(Icons.groups_rounded, color: Colors.indigo),
+                                        tooltip: 'CC Requests',
+                                        onPressed: () => _showPendingRequests(
+                                          cls['class_id'],
+                                          '${cls['year']} - ${cls['section']}',
+                                        ),
+                                      ),
+                                      IconButton(
+                                        icon: const Icon(Icons.book_rounded, color: Colors.deepPurple),
+                                        tooltip: 'Manage Courses',
+                                        onPressed: () => Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (context) => ClassCoursesScreen(
+                                              classId: cls['class_id'],
+                                              className: '${cls['year']} - ${cls['section']}',
+                                              collegeId: widget.collegeId,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                      IconButton(
+                                        icon: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent),
+                                        tooltip: 'Delete Class',
+                                        onPressed: () => _confirmDeleteClass(
+                                          cls['class_id'],
+                                          '${cls['year']} - ${cls['section']}',
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  onTap: () => Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) => AdminTimetableViewScreen(
+                                        classId: cls['class_id'],
+                                        className: '${cls['year']} - ${cls['section']}',
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                ),
+              ],
             ),
       floatingActionButton: _hasActiveSemester
-          ? FloatingActionButton(
+          ? FloatingActionButton.extended(
+              backgroundColor: const Color(0xFF3525CD),
+              foregroundColor: Colors.white,
+              icon: const Icon(Icons.add_rounded),
+              label: const Text('Add Class', style: TextStyle(fontWeight: FontWeight.bold)),
               onPressed: _showAddClassDialog,
-              child: const Icon(Icons.add),
             )
           : null,
+    );
+  }
+
+  Widget _buildMetricTile(String label, String value, IconData icon, Color color) {
+    return Expanded(
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: color.withValues(alpha: 0.2)),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: color, size: 20),
+            const SizedBox(width: 8),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(value, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: color)),
+                Text(label, style: const TextStyle(fontSize: 10, color: Colors.black54)),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

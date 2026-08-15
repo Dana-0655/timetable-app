@@ -156,7 +156,9 @@ class _ScheduleBuilderScreenState extends State<ScheduleBuilderScreen> {
           child: ReorderableListView.builder(
             padding: const EdgeInsets.all(16),
             itemCount: _slotOrder.length,
-            onReorder: _reorder,
+            onReorder: (oldIndex, newIndex) {
+              _reorder(oldIndex, newIndex);
+            },
             itemBuilder: (context, index) {
               final type = _slotOrder[index];
               final isBreak = type == 'break';

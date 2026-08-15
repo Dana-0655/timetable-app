@@ -18,7 +18,7 @@ class FacultyMyScheduleScreen extends StatefulWidget {
 }
 
 class _FacultyMyScheduleScreenState extends State<FacultyMyScheduleScreen> {
-  List<dynamic> _myEntries = [];
+  List<dynamic> _schedule = [];
   bool _isLoading = true;
 
   @override
@@ -27,40 +27,19 @@ class _FacultyMyScheduleScreenState extends State<FacultyMyScheduleScreen> {
     _fetchMySchedule();
   }
 
-  // Since we don't have a direct "my schedule" API, we fetch all classes,
-  // then all timetables, and filter entries where faculty_name matches.
-  // For simplicity in this stage, we search across all classes in the college.
   Future<void> _fetchMySchedule() async {
     setState(() => _isLoading = true);
-    List<dynamic> allEntries = [];
-
+    final url = Uri.parse('http://127.0.0.1:5000/faculty_schedule/${widget.facultyId}');
     try {
-      final classesUrl = Uri.parse(
-        'http://127.0.0.1:5000/classes/${widget.collegeId}',
-      );
-      final classesResponse = await http.get(classesUrl);
-      final classes = jsonDecode(classesResponse.body);
-
-      for (var cls in classes) {
-        final ttUrl = Uri.parse(
-          'http://127.0.0.1:5000/timetable/${cls['class_id']}',
-        );
-        final ttResponse = await http.get(ttUrl);
-        final entries = jsonDecode(ttResponse.body);
-
-        for (var entry in entries) {
-          if (entry['course_id'] != null) {
-            entry['class_id'] = cls['class_id'];
-            entry['class_name'] = '${cls['year']} - ${cls['section']}';
-            allEntries.add(entry);
-          }
-        }
+      final response = await http.get(url);
+      if (response.statusCode == 200) {
+        setState(() {
+          _schedule = jsonDecode(response.body);
+          _isLoading = false;
+        });
+      } else {
+        setState(() => _isLoading = false);
       }
-
-      setState(() {
-        _myEntries = allEntries;
-        _isLoading = false;
-      });
     } catch (e) {
       setState(() => _isLoading = false);
     }
@@ -86,7 +65,8 @@ class _FacultyMyScheduleScreenState extends State<FacultyMyScheduleScreen> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('Leave marked! Slot highlighted for others.'),
+              content: Text('Leave marked! Slot highlighted for substitutes.'),
+              backgroundColor: Colors.orange,
             ),
           );
         }
@@ -104,32 +84,108 @@ class _FacultyMyScheduleScreenState extends State<FacultyMyScheduleScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('My Schedule')),
+      appBar: AppBar(
+        title: const Text('My Teaching Schedule'),
+      ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : _myEntries.isEmpty
+          : _schedule.isEmpty
           ? const Center(child: Text('No classes assigned to you yet.'))
           : ListView.builder(
               padding: const EdgeInsets.all(16),
-              itemCount: _myEntries.length,
+              itemCount: _schedule.length,
               itemBuilder: (context, index) {
-                final entry = _myEntries[index];
-                final isOpen = entry['status_color'] == 'open_leave';
-                return Card(
-                  color: isOpen ? Colors.orange.shade50 : null,
+                final item = _schedule[index];
+                final isCovering = item['type'] == 'covering';
+                final isOnLeave = item['is_on_leave'] == true;
+                final subName = item['substitute_name'];
+
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  decoration: BoxDecoration(
+                    color: isCovering
+                        ? Colors.green.shade50
+                        : (isOnLeave ? Colors.amber.shade50 : Colors.white),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: isCovering
+                          ? Colors.green.shade400
+                          : (isOnLeave
+                              ? Colors.amber.shade400
+                              : Colors.grey.shade300),
+                    ),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Colors.black12,
+                        blurRadius: 4,
+                        offset: Offset(0, 2),
+                      ),
+                    ],
+                  ),
                   child: ListTile(
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
+                    leading: CircleAvatar(
+                      backgroundColor: isCovering
+                          ? Colors.green
+                          : (isOnLeave ? Colors.amber.shade800 : Colors.deepPurple),
+                      child: Icon(
+                        isCovering
+                            ? Icons.assignment_ind
+                            : (isOnLeave ? Icons.event_busy : Icons.class_),
+                        color: Colors.white,
+                      ),
+                    ),
                     title: Text(
-                      '${entry['class_name']} - ${entry['course_name']}',
+                      '${item['class_name']} • ${item['course_name']}',
+                      style: const TextStyle(fontWeight: FontWeight.bold),
                     ),
                     subtitle: Text(
-                      '${entry['day_of_week']} Period ${entry['period_no']}',
+                      '${item['day_of_week']} Period ${item['period_no']} (${item['start_time'] ?? ''} - ${item['end_time'] ?? ''})'
+                      '${isCovering ? '\nCovering for: ${item['absent_faculty_name']}' : ''}'
+                      '${subName != null ? '\nSubstituted by: $subName' : ''}',
                     ),
-                    trailing: isOpen
-                        ? const Chip(label: Text('Leave Marked'))
-                        : TextButton(
-                            onPressed: () => _markLeave(entry['entry_id']),
-                            child: const Text('Mark Leave'),
-                          ),
+                    trailing: isCovering
+                        ? Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.green,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: const Text(
+                              'Covering',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          )
+                        : (isOnLeave
+                            ? Chip(
+                                backgroundColor: Colors.amber.shade100,
+                                label: Text(
+                                  subName != null ? 'Covered' : 'On Leave',
+                                  style: TextStyle(
+                                    color: Colors.amber.shade900,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              )
+                            : ElevatedButton(
+                                onPressed: () => _markLeave(item['entry_id']),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.amber.shade800,
+                                  foregroundColor: Colors.white,
+                                ),
+                                child: const Text('Mark Leave'),
+                              )),
                   ),
                 );
               },

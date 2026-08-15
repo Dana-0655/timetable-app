@@ -7,10 +7,16 @@ from flask_bcrypt import Bcrypt
 from apscheduler.schedulers.background import BackgroundScheduler
 from datetime import datetime, timedelta
 
+from urllib.parse import quote_plus
+
 app = Flask(__name__)
 CORS(app)
 
-app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://root:Dhana%402006@localhost/timetable_db'
+db_url = os.environ.get('DATABASE_URL')
+if not db_url or '3RJtamilan003' in db_url:
+    db_url = f"mysql+pymysql://root:{quote_plus('#RJtamilan003')}@localhost/timetable_db"
+
+app.config['SQLALCHEMY_DATABASE_URI'] = db_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
@@ -38,6 +44,8 @@ class Faculty(db.Model):
     email = db.Column(db.String(150), unique=True, nullable=False)
     password_hash = db.Column(db.String(255), nullable=False)
     subject_expertise = db.Column(db.String(255), nullable=True)
+    department = db.Column(db.String(100), nullable=True, default='')
+    max_daily_load = db.Column(db.Integer, nullable=False, default=4)
     created_at = db.Column(db.DateTime, server_default=db.func.now())
 
 class Class(db.Model):
@@ -625,7 +633,8 @@ def get_timetable(class_id):
 
 @app.route("/verify_college_code/<string:code>", methods=["GET"])
 def verify_college_code(code):
-    college = College.query.filter_by(college_code=code).first()
+    clean_code = code.strip().lower()
+    college = College.query.filter(db.func.lower(College.college_code) == clean_code).first()
     if not college:
         return jsonify({"error": "Invalid college code"}), 404
 
@@ -1454,6 +1463,491 @@ def get_leave_by_entry(entry_id):
     if not leave:
         return jsonify({"error": "No active leave found for this entry"}), 404
     return jsonify({"leave_id": leave.leave_id})
-    
+
+@app.route("/suggest_substitutes/<int:leave_id>", methods=["GET"])
+def suggest_substitutes(leave_id):
+    leave = Leave.query.get(leave_id)
+    if not leave:
+        return jsonify({"error": "Leave not found"}), 404
+
+    entry = TimetableEntry.query.get(leave.entry_id)
+    if not entry:
+        return jsonify({"error": "Timetable entry not found"}), 404
+
+    target_class = Class.query.get(entry.class_id)
+    absent_faculty = Faculty.query.get(leave.faculty_id)
+    course = Course.query.get(entry.course_id) if entry.course_id else None
+    config = TimetableConfig.query.filter_by(class_id=entry.class_id).first()
+    total_periods = config.periods_per_day if config else 6
+
+    # College faculty list excluding absent faculty
+    all_faculty = Faculty.query.filter(
+        Faculty.college_id == absent_faculty.college_id,
+        Faculty.faculty_id != absent_faculty.faculty_id
+    ).all()
+
+    target_dept = (target_class.department if target_class else "").strip()
+
+    candidates = []
+
+    for f in all_faculty:
+        # (a) Check if free at exact hour (day_of_week, period_no)
+        # 1. Regular class conflict
+        regular_conflict = db.session.query(TimetableEntry).join(Course).filter(
+            Course.faculty_id == f.faculty_id,
+            TimetableEntry.day_of_week == entry.day_of_week,
+            TimetableEntry.period_no == entry.period_no
+        ).first()
+
+        if regular_conflict:
+            continue
+
+        # 2. Confirmed substitution cover conflict on leave_date
+        cover_conflict = db.session.query(Leave).join(TimetableEntry).filter(
+            Leave.leave_date == leave.leave_date,
+            Leave.status == "confirmed",
+            Leave.confirmed_faculty_id == f.faculty_id,
+            TimetableEntry.day_of_week == entry.day_of_week,
+            TimetableEntry.period_no == entry.period_no
+        ).first()
+
+        if cover_conflict:
+            continue
+
+        # 3. Own leave conflict on leave_date
+        leave_conflict = db.session.query(Leave).join(TimetableEntry).filter(
+            Leave.leave_date == leave.leave_date,
+            Leave.faculty_id == f.faculty_id,
+            TimetableEntry.day_of_week == entry.day_of_week,
+            TimetableEntry.period_no == entry.period_no
+        ).first()
+
+        if leave_conflict:
+            continue
+
+        # (c) Check max daily load
+        # Count regular scheduled entries for this day_of_week
+        regular_daily_count = db.session.query(TimetableEntry).join(Course).filter(
+            Course.faculty_id == f.faculty_id,
+            TimetableEntry.day_of_week == entry.day_of_week
+        ).count()
+
+        # Count confirmed covers on leave_date
+        confirmed_covers_today = db.session.query(Leave).filter(
+            Leave.leave_date == leave.leave_date,
+            Leave.status == "confirmed",
+            Leave.confirmed_faculty_id == f.faculty_id
+        ).count()
+
+        # Count leaves on leave_date
+        own_leaves_today = db.session.query(Leave).filter(
+            Leave.leave_date == leave.leave_date,
+            Leave.faculty_id == f.faculty_id
+        ).count()
+
+        current_daily_load = max(0, regular_daily_count + confirmed_covers_today - own_leaves_today)
+        max_load = getattr(f, 'max_daily_load', 4) or 4
+
+        if current_daily_load >= max_load:
+            continue  # Exceeds max daily load
+
+        # (b) Already teach that class/section?
+        teaches_in_class = Course.query.filter_by(class_id=entry.class_id, faculty_id=f.faculty_id).first() is not None
+        is_cc = (target_class and target_class.cc_faculty_id == f.faculty_id)
+        teaches_target_class = teaches_in_class or is_cc
+
+        # Department match
+        f_dept = (getattr(f, 'department', '') or '').strip()
+        f_exp = (f.subject_expertise or '').strip()
+
+        same_department = False
+        if target_dept:
+            if f_dept and f_dept.lower() == target_dept.lower():
+                same_department = True
+            elif f_exp and (target_dept.lower() in f_exp.lower() or f_exp.lower() in target_dept.lower()):
+                same_department = True
+        elif f_dept and absent_faculty and absent_faculty.subject_expertise:
+            if f_dept.lower() in absent_faculty.subject_expertise.lower():
+                same_department = True
+
+        free_hour_count = max(0, total_periods - current_daily_load)
+
+        past_substitutions_count = Leave.query.filter_by(
+            confirmed_faculty_id=f.faculty_id,
+            status="confirmed"
+        ).count()
+
+        # Calculate Score
+        score = 50  # base
+        reasons = []
+
+        if teaches_target_class:
+            score += 25
+            reasons.append("Teaches in this class/section")
+        if same_department:
+            score += 20
+            dept_label = f_dept if f_dept else target_dept
+            reasons.append(f"Same Department ({dept_label})")
+
+        score += min(15, free_hour_count * 3)
+        reasons.append(f"{free_hour_count} free period(s) today")
+
+        reasons.append(f"Daily load: {current_daily_load}/{max_load}")
+
+        if past_substitutions_count == 0:
+            score += 5
+            reasons.append("No past substitutions (fair workload)")
+        else:
+            reasons.append(f"{past_substitutions_count} past substitution(s) covered")
+
+        match_score = min(99, score)
+
+        candidates.append({
+            "faculty_id": f.faculty_id,
+            "name": f.name,
+            "email": f.email,
+            "department": f_dept or (target_dept if same_department else "General"),
+            "subject_expertise": f_exp,
+            "match_score": match_score,
+            "teaches_target_class": teaches_target_class,
+            "same_department": same_department,
+            "current_daily_load": current_daily_load,
+            "max_daily_load": max_load,
+            "free_hour_count": free_hour_count,
+            "past_substitutions_count": past_substitutions_count,
+            "reasons": reasons
+        })
+
+    # Ranking sort key:
+    # 1. teaches_target_class (True > False)
+    # 2. same_department (True > False)
+    # 3. free_hour_count (Higher > Lower)
+    # 4. past_substitutions_count (Lower > Higher)
+    candidates.sort(key=lambda c: (
+        1 if c["teaches_target_class"] else 0,
+        1 if c["same_department"] else 0,
+        c["free_hour_count"],
+        -c["past_substitutions_count"]
+    ), reverse=True)
+
+    # Assign rank numbers
+    for idx, c in enumerate(candidates, 1):
+        c["rank"] = idx
+
+    return jsonify({
+        "leave_id": leave.leave_id,
+        "slot_info": {
+            "leave_date": leave.leave_date,
+            "day_of_week": entry.day_of_week,
+            "period_no": entry.period_no,
+            "start_time": entry.start_time,
+            "end_time": entry.end_time,
+            "class_id": target_class.class_id if target_class else None,
+            "class_name": f"{target_class.year} - {target_class.section}" if target_class else "",
+            "department": target_dept,
+            "course_name": course.course_name if course else "Subject Class",
+            "absent_faculty_id": absent_faculty.faculty_id,
+            "absent_faculty_name": absent_faculty.name
+        },
+        "candidates": candidates
+    })
+
+@app.route("/approve_substitute", methods=["POST"])
+def approve_substitute():
+    data = request.get_json()
+
+    leave_id = data.get("leave_id")
+    substitute_faculty_id = data.get("substitute_faculty_id")
+    approved_by_role = data.get("approved_by_role", "admin")
+
+    leave = Leave.query.get(leave_id)
+    if not leave:
+        return jsonify({"error": "Leave not found"}), 404
+
+    substitute = Faculty.query.get(substitute_faculty_id)
+    if not substitute:
+        return jsonify({"error": "Substitute faculty not found"}), 404
+
+    absent_faculty = Faculty.query.get(leave.faculty_id)
+    entry = TimetableEntry.query.get(leave.entry_id)
+    class_obj = Class.query.get(entry.class_id) if entry else None
+
+    leave.status = "confirmed"
+    leave.confirmed_faculty_id = substitute_faculty_id
+    leave.confirmed_by_role = approved_by_role
+
+    if entry:
+        entry.status_color = "confirmed_cover"
+
+    # Accept any matching CoverRequest or create one
+    existing_req = CoverRequest.query.filter_by(
+        leave_id=leave_id,
+        requesting_faculty_id=substitute_faculty_id
+    ).first()
+
+    if existing_req:
+        existing_req.status = "accepted"
+    else:
+        new_req = CoverRequest(
+            leave_id=leave_id,
+            requesting_faculty_id=substitute_faculty_id,
+            status="accepted"
+        )
+        db.session.add(new_req)
+
+    # Reject other pending cover requests for this leave
+    other_reqs = CoverRequest.query.filter(
+        CoverRequest.leave_id == leave_id,
+        CoverRequest.requesting_faculty_id != substitute_faculty_id
+    ).all()
+    for r in other_reqs:
+        r.status = "rejected"
+
+    db.session.commit()
+
+    # Dispatch notifications
+    slot_desc = f"{entry.day_of_week} Period {entry.period_no}" if entry else f"Leave #{leave_id}"
+    class_desc = f" ({class_obj.year} - {class_obj.section})" if class_obj else ""
+
+    create_notification(
+        "faculty", substitute.faculty_id,
+        f"You are confirmed to cover {slot_desc}{class_desc} on {leave.leave_date}",
+        "cover_confirmed"
+    )
+
+    create_notification(
+        "faculty", absent_faculty.faculty_id,
+        f"{substitute.name} has been assigned as your substitute for {slot_desc}{class_desc} on {leave.leave_date}",
+        "cover_confirmed"
+    )
+
+    if class_obj and class_obj.cc_faculty_id and class_obj.cc_faculty_id not in (substitute.faculty_id, absent_faculty.faculty_id):
+        create_notification(
+            "faculty", class_obj.cc_faculty_id,
+            f"{substitute.name} will cover {absent_faculty.name}'s class on {slot_desc}{class_desc} ({leave.leave_date})",
+            "cover_confirmed"
+        )
+
+    return jsonify({
+        "message": f"{substitute.name} successfully approved as substitute!",
+        "leave_id": leave.leave_id,
+        "substitute_name": substitute.name
+    })
+
+@app.route("/auto_allocate_substitute", methods=["POST"])
+def auto_allocate_substitute():
+    data = request.get_json()
+    leave_id = data.get("leave_id")
+
+    sug_response = suggest_substitutes(leave_id)
+    if sug_response.status_code != 200:
+        return sug_response
+
+    candidates = sug_response.get_json().get("candidates", [])
+    if not candidates:
+        return jsonify({"error": "No eligible free substitute available for this slot"}), 400
+
+    top_cand = candidates[0]
+
+    leave = Leave.query.get(leave_id)
+    substitute = Faculty.query.get(top_cand["faculty_id"])
+    absent_faculty = Faculty.query.get(leave.faculty_id)
+    entry = TimetableEntry.query.get(leave.entry_id)
+    class_obj = Class.query.get(entry.class_id) if entry else None
+    course_obj = Course.query.get(entry.course_id) if entry and entry.course_id else None
+
+    leave.status = "confirmed"
+    leave.confirmed_faculty_id = substitute.faculty_id
+    leave.confirmed_by_role = data.get("approved_by_role", "auto")
+    if entry:
+        entry.status_color = "confirmed_cover"
+
+    db.session.commit()
+
+    slot_label = f"{entry.day_of_week} Period {entry.period_no}" if entry else f"Leave #{leave_id}"
+    class_label = f"{class_obj.year} - {class_obj.section}" if class_obj else ""
+    course_name = course_obj.course_name if course_obj else "Subject"
+
+    create_notification("faculty", substitute.faculty_id, f"Auto-Assigned: Cover {course_name} ({class_label}) on {slot_label}", "cover_confirmed")
+    create_notification("faculty", absent_faculty.faculty_id, f"Auto-Assigned: {substitute.name} will cover your {course_name} class on {slot_label}", "cover_confirmed")
+    if class_obj:
+        create_notification("class", class_obj.class_id, f"Notice for {class_label}: {substitute.name} will take your {course_name} class on {slot_label}", "substitute_alert")
+
+    return jsonify({
+        "message": f"Successfully auto-allocated {substitute.name} as substitute!",
+        "leave_id": leave.leave_id,
+        "substitute_name": substitute.name,
+        "match_score": top_cand["match_score"]
+    })
+
+@app.route("/auto_allocate_day_leave", methods=["POST"])
+def auto_allocate_day_leave():
+    data = request.get_json()
+    faculty_id = data["faculty_id"]
+    leave_date = data["leave_date"]
+    day_of_week = data["day_of_week"]
+
+    absent_faculty = Faculty.query.get(faculty_id)
+    if not absent_faculty:
+        return jsonify({"error": "Faculty not found"}), 404
+
+    entries = db.session.query(TimetableEntry).join(Course).filter(
+        Course.faculty_id == faculty_id,
+        TimetableEntry.day_of_week == day_of_week
+    ).all()
+
+    if not entries:
+        return jsonify({"message": "No classes scheduled for this faculty on that day."}), 200
+
+    results = []
+
+    for entry in entries:
+        leave = Leave.query.filter_by(entry_id=entry.entry_id, leave_date=leave_date).first()
+        if not leave:
+            leave = Leave(
+                faculty_id=faculty_id,
+                entry_id=entry.entry_id,
+                leave_date=leave_date,
+                status="open"
+            )
+            db.session.add(leave)
+            db.session.commit()
+
+        entry.status_color = "open_leave"
+
+        sug_response = suggest_substitutes(leave.leave_id)
+        if sug_response.status_code == 200:
+            candidates = sug_response.get_json().get("candidates", [])
+            if candidates:
+                top_cand = candidates[0]
+                substitute_id = top_cand["faculty_id"]
+                substitute_name = top_cand["name"]
+
+                leave.status = "confirmed"
+                leave.confirmed_faculty_id = substitute_id
+                leave.confirmed_by_role = "auto"
+                entry.status_color = "confirmed_cover"
+
+                class_obj = Class.query.get(entry.class_id)
+                course_obj = Course.query.get(entry.course_id) if entry.course_id else None
+
+                slot_label = f"{entry.day_of_week} Period {entry.period_no}"
+                class_label = f"{class_obj.year} - {class_obj.section}" if class_obj else ""
+                course_name = course_obj.course_name if course_obj else "Subject"
+
+                create_notification("faculty", substitute_id, f"Auto-Assigned: Cover {course_name} for {class_label} on {slot_label} ({leave_date})", "cover_confirmed")
+                create_notification("faculty", absent_faculty.faculty_id, f"Auto-Assigned: {substitute_name} will cover your {course_name} class on {slot_label} ({leave_date})", "cover_confirmed")
+                if class_obj:
+                    create_notification("class", class_obj.class_id, f"Notice for {class_label}: {substitute_name} will take your {course_name} class on {slot_label}", "substitute_alert")
+
+                results.append({
+                    "entry_id": entry.entry_id,
+                    "period_no": entry.period_no,
+                    "course_name": course_name,
+                    "substitute_name": substitute_name,
+                    "status": "auto_allocated"
+                })
+            else:
+                course_obj = Course.query.get(entry.course_id) if entry.course_id else None
+                results.append({
+                    "entry_id": entry.entry_id,
+                    "period_no": entry.period_no,
+                    "course_name": course_obj.course_name if course_obj else "Subject",
+                    "status": "open_no_substitute_available"
+                })
+
+    db.session.commit()
+
+    return jsonify({
+        "message": f"Day leave processed. Auto-allocated substitutes for {len(results)} period(s).",
+        "details": results
+    })
+
+@app.route("/faculty_schedule/<int:faculty_id>", methods=["GET"])
+def get_faculty_schedule(faculty_id):
+    faculty = Faculty.query.get(faculty_id)
+    if not faculty:
+        return jsonify({"error": "Faculty not found"}), 404
+
+    # Regular courses taught by faculty
+    regular_courses = Course.query.filter_by(faculty_id=faculty_id).all()
+    course_ids = [c.course_id for c in regular_courses]
+
+    regular_entries = TimetableEntry.query.filter(TimetableEntry.course_id.in_(course_ids)).all() if course_ids else []
+
+    schedule = []
+    for entry in regular_entries:
+        course = Course.query.get(entry.course_id)
+        class_obj = Class.query.get(entry.class_id)
+
+        leave = Leave.query.filter_by(entry_id=entry.entry_id).filter(Leave.status != 'rejected').first()
+        substitute_name = None
+        leave_status = None
+        if leave:
+            leave_status = leave.status
+            if leave.confirmed_faculty_id:
+                sub_fac = Faculty.query.get(leave.confirmed_faculty_id)
+                substitute_name = sub_fac.name if sub_fac else None
+
+        schedule.append({
+            "entry_id": entry.entry_id,
+            "type": "regular",
+            "day_of_week": entry.day_of_week,
+            "period_no": entry.period_no,
+            "start_time": entry.start_time,
+            "end_time": entry.end_time,
+            "class_id": class_obj.class_id if class_obj else None,
+            "class_name": f"{class_obj.year} - {class_obj.section}" if class_obj else "",
+            "course_name": course.course_name if course else "",
+            "is_on_leave": leave is not None,
+            "leave_status": leave_status,
+            "substitute_name": substitute_name
+        })
+
+    # Covering assignments
+    confirmed_covers = Leave.query.filter_by(confirmed_faculty_id=faculty_id, status="confirmed").all()
+    for cover in confirmed_covers:
+        entry = TimetableEntry.query.get(cover.entry_id)
+        if entry:
+            course = Course.query.get(entry.course_id) if entry.course_id else None
+            class_obj = Class.query.get(entry.class_id)
+            absent_fac = Faculty.query.get(cover.faculty_id)
+
+            schedule.append({
+                "entry_id": entry.entry_id,
+                "type": "covering",
+                "day_of_week": entry.day_of_week,
+                "period_no": entry.period_no,
+                "start_time": entry.start_time,
+                "end_time": entry.end_time,
+                "class_id": class_obj.class_id if class_obj else None,
+                "class_name": f"{class_obj.year} - {class_obj.section}" if class_obj else "",
+                "course_name": course.course_name if course else "Substitute Class",
+                "absent_faculty_name": absent_fac.name if absent_fac else "Absent Faculty",
+                "leave_date": cover.leave_date
+            })
+
+    return jsonify(schedule)
+
+def ensure_db_schema():
+    with app.app_context():
+        try:
+            db.create_all()
+            with db.engine.connect() as conn:
+                try:
+                    conn.execute(db.text("ALTER TABLE faculty ADD COLUMN department VARCHAR(100) DEFAULT ''"))
+                    conn.commit()
+                except Exception:
+                    pass
+                try:
+                    conn.execute(db.text("ALTER TABLE faculty ADD COLUMN max_daily_load INT DEFAULT 4"))
+                    conn.commit()
+                except Exception:
+                    pass
+        except Exception as e:
+            print(f"[DB SCHEMA WARNING] {e}")
+
+ensure_db_schema()
+
 if __name__ == "__main__":
     app.run(debug=True)

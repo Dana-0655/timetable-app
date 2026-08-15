@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'substitute_recommendations_dialog.dart';
 
 class FacultyPendingLeavesScreen extends StatefulWidget {
   final int facultyId;
@@ -48,14 +49,12 @@ class _FacultyPendingLeavesScreenState
 
         for (var entry in entries) {
           if (entry['status_color'] == 'open_leave') {
-            // Get the leave_id for this entry
             final leaveUrl = Uri.parse(
               'http://127.0.0.1:5000/leave_by_entry/${entry['entry_id']}',
             );
             final leaveResponse = await http.get(leaveUrl);
             if (leaveResponse.statusCode == 200) {
               final leaveData = jsonDecode(leaveResponse.body);
-              // Only show leaves belonging to THIS faculty
               entry['leave_id'] = leaveData['leave_id'];
               entry['class_name'] = '${cls['year']} - ${cls['section']}';
               myOpen.add(entry);
@@ -70,6 +69,20 @@ class _FacultyPendingLeavesScreenState
       });
     } catch (e) {
       setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _openAutoSuggestDialog(int leaveId) async {
+    final refreshed = await showDialog<bool>(
+      context: context,
+      builder: (context) => SubstituteRecommendationsDialog(
+        leaveId: leaveId,
+        userRole: 'faculty',
+      ),
+    );
+
+    if (refreshed == true) {
+      _fetchMyOpenLeaves();
     }
   }
 
@@ -116,7 +129,7 @@ class _FacultyPendingLeavesScreenState
         ),
       );
     } catch (e) {
-      // Silently fail for now
+      // Silently fail
     }
   }
 
@@ -141,7 +154,7 @@ class _FacultyPendingLeavesScreenState
         _fetchMyOpenLeaves();
       }
     } catch (e) {
-      // Silently fail for now
+      // Silently fail
     }
   }
 
@@ -160,15 +173,57 @@ class _FacultyPendingLeavesScreenState
                 final entry = _myOpenEntries[index];
                 final slotInfo =
                     '${entry['class_name']} - ${entry['day_of_week']} Period ${entry['period_no']}';
+                final leaveId = entry['leave_id'];
+
                 return Card(
                   color: Colors.orange.shade50,
-                  child: ListTile(
-                    title: Text(entry['course_name'] ?? ''),
-                    subtitle: Text(slotInfo),
-                    trailing: ElevatedButton(
-                      onPressed: () =>
-                          _viewAndConfirmRequests(entry['leave_id'], slotInfo),
-                      child: const Text('View Volunteers'),
+                  elevation: 2,
+                  margin: const EdgeInsets.only(bottom: 12),
+                  child: Padding(
+                    padding: const EdgeInsets.all(12.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          entry['course_name'] ?? 'Class Period',
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          slotInfo,
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Colors.grey.shade800,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: ElevatedButton.icon(
+                                onPressed: () => _openAutoSuggestDialog(leaveId),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.deepPurple,
+                                  foregroundColor: Colors.white,
+                                ),
+                                icon: const Icon(Icons.auto_awesome, size: 16),
+                                label: const Text('Auto-Suggest'),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            OutlinedButton(
+                              onPressed: () => _viewAndConfirmRequests(
+                                leaveId,
+                                slotInfo,
+                              ),
+                              child: const Text('Volunteers'),
+                            ),
+                          ],
+                        ),
+                      ],
                     ),
                   ),
                 );

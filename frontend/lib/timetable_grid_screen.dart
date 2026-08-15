@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-import 'schedule_builder_screen.dart';
+import 'weekly_matrix_grid_widget.dart';
 
 class TimetableGridScreen extends StatefulWidget {
   final int classId;
@@ -20,250 +20,102 @@ class TimetableGridScreen extends StatefulWidget {
 }
 
 class _TimetableGridScreenState extends State<TimetableGridScreen> {
-  List<dynamic> _entries = [];
-  bool _isLoading = true;
-  bool _swapMode = false;
-  dynamic _selectedMyEntry;
+  final GlobalKey _matrixKey = GlobalKey();
 
-  final List<String> _days = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+  Future<void> _markFullDayLeaveAndAutoAllocate() async {
+    final now = DateTime.now();
+    final dateStr =
+        '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+    final days = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
+    final dayOfWeek = days[now.weekday - 1];
 
-  @override
-  void initState() {
-    super.initState();
-    _fetchTimetable();
-  }
-
-  Future<void> _fetchTimetable() async {
-    setState(() => _isLoading = true);
-    final url = Uri.parse('http://127.0.0.1:5000/timetable/${widget.classId}');
-    try {
-      final response = await http.get(url);
-      if (response.statusCode == 200) {
-        setState(() {
-          _entries = jsonDecode(response.body);
-          _isLoading = false;
-        });
-      }
-    } catch (e) {
-      setState(() => _isLoading = false);
-    }
-  }
-
-  Color _colorForEntry(dynamic entry) {
-    if (_selectedMyEntry != null &&
-        entry['entry_id'] == _selectedMyEntry['entry_id']) {
-      return Colors.orange.shade200; // My selected period to give up
-    }
-    switch (entry['status_color']) {
-      case 'open_leave':
-        return Colors.orange.shade100;
-      case 'confirmed_cover':
-        return Colors.green.shade100;
-      case 'swapped':
-        return Colors.blue.shade100;
-      default:
-        return Colors.white;
-    }
-  }
-
-  bool _isTappable(dynamic entry) {
-    if (!_swapMode) return false;
-    if (entry['course_id'] == null) return false; // unassigned slot, can't swap
-
-    if (_selectedMyEntry == null) {
-      // Step 1: only my own periods are tappable
-      return entry['faculty_id'] == widget.facultyId;
-    } else {
-      // Step 2: only OTHER faculty's periods are tappable (mine is disabled now)
-      return entry['faculty_id'] != widget.facultyId;
-    }
-  }
-
-  void _onEntryTap(dynamic entry) {
-    if (!_isTappable(entry)) return;
-
-    if (_selectedMyEntry == null) {
-      // Picking my own period
-      setState(() {
-        _selectedMyEntry = entry;
-      });
-    } else {
-      // Picking target period -> confirm
-      _confirmSwap(entry);
-    }
-  }
-
-  void _confirmSwap(dynamic targetEntry) {
-    showDialog(
+    final confirm = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Confirm Swap Request'),
+        title: const Row(
+          children: [
+            Icon(Icons.event_busy, color: Colors.deepOrange),
+            SizedBox(width: 8),
+            Text('Mark Full-Day Leave'),
+          ],
+        ),
         content: Text(
-          'Do you want to request a swap with ${targetEntry['faculty_name']}?\n\n'
-          'You give: ${_selectedMyEntry['course_name']} '
-          '(${_selectedMyEntry['day_of_week']} P${_selectedMyEntry['period_no']})\n'
-          'You get: ${targetEntry['course_name']} '
-          '(${targetEntry['day_of_week']} P${targetEntry['period_no']})',
+          'Mark leave for ALL your classes today ($dateStr, $dayOfWeek)?\n\n'
+          '⚡ The Smart Engine will automatically find optimal substitute teachers for each period and notify students, covering faculty, and admins!',
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(context, false),
             child: const Text('Cancel'),
           ),
           ElevatedButton(
-            onPressed: () async {
-              Navigator.pop(context);
-              await _sendSwapRequest(targetEntry);
-            },
-            child: const Text('Send Request'),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.deepOrange),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Mark & Auto-Allocate'),
           ),
         ],
       ),
     );
-  }
 
-  Future<void> _sendSwapRequest(dynamic targetEntry) async {
-    final url = Uri.parse('http://127.0.0.1:5000/send_swap_request');
+    if (confirm != true) return;
+
+    final url = Uri.parse('http://127.0.0.1:5000/auto_allocate_day_leave');
     try {
       final response = await http.post(
         url,
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
-          'requester_faculty_id': widget.facultyId,
-          'requester_entry_id': _selectedMyEntry['entry_id'],
-          'target_faculty_id': targetEntry['faculty_id'],
-          'target_entry_id': targetEntry['entry_id'],
+          'faculty_id': widget.facultyId,
+          'leave_date': dateStr,
+          'day_of_week': dayOfWeek,
         }),
       );
+
       if (response.statusCode == 200) {
+        final res = jsonDecode(response.body);
         if (mounted) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(const SnackBar(content: Text('Swap request sent!')));
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('⚡ ${res["message"]}'),
+              backgroundColor: Colors.green.shade800,
+            ),
+          );
         }
+        setState(() {});
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not connect to server.')),
+          const SnackBar(
+            content: Text('Could not connect to server.'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     }
-    setState(() {
-      _swapMode = false;
-      _selectedMyEntry = null;
-    });
   }
 
   @override
   Widget build(BuildContext context) {
-    return DefaultTabController(
-      length: _days.length,
-      child: Scaffold(
-        appBar: AppBar(
-          title: Text(widget.className),
-          bottom: TabBar(
-            isScrollable: true,
-            tabs: _days.map((d) => Tab(text: d)).toList(),
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(widget.className),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.flash_on, color: Colors.amberAccent),
+            tooltip: '1-Tap Full-Day Auto-Leave & Substitution',
+            onPressed: _markFullDayLeaveAndAutoAllocate,
           ),
-          actions: [
-            IconButton(
-              icon: Icon(_swapMode ? Icons.close : Icons.swap_horiz),
-              tooltip: _swapMode ? 'Cancel Swap' : 'Start Swap Request',
-              onPressed: () {
-                setState(() {
-                  _swapMode = !_swapMode;
-                  _selectedMyEntry = null;
-                });
-              },
-            ),
-          ],
-        ),
-        body: Column(
-          children: [
-            if (_swapMode)
-              Container(
-                width: double.infinity,
-                color: Colors.blue.shade50,
-                padding: const EdgeInsets.all(12),
-                child: Text(
-                  _selectedMyEntry == null
-                      ? 'Tap YOUR period to give up'
-                      : 'Now tap the period you want instead',
-                  style: const TextStyle(fontWeight: FontWeight.bold),
-                ),
-              ),
-            Expanded(
-              child: _isLoading
-                  ? const Center(child: CircularProgressIndicator())
-                  : TabBarView(
-                      children: _days.map((day) {
-                        final dayEntries =
-                            _entries
-                                .where((e) => e['day_of_week'] == day)
-                                .toList()
-                              ..sort(
-                                (a, b) =>
-                                    a['period_no'].compareTo(b['period_no']),
-                              );
-
-                        if (dayEntries.isEmpty) {
-                          return Center(
-                            child: ElevatedButton.icon(
-                              icon: const Icon(Icons.add_chart),
-                              label: const Text('Make Schedule'),
-                              onPressed: () async {
-                                final result = await Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (context) => ScheduleBuilderScreen(
-                                      classId: widget.classId,
-                                      className: widget.className,
-                                      dayOfWeek: day,
-                                    ),
-                                  ),
-                                );
-                                if (result == true) {
-                                  _fetchTimetable();
-                                }
-                              },
-                            ),
-                          );
-                        }
-
-                        return ListView.builder(
-                          padding: const EdgeInsets.all(16),
-                          itemCount: dayEntries.length,
-                          itemBuilder: (context, index) {
-                            final entry = dayEntries[index];
-                            final tappable = _isTappable(entry);
-                            return Opacity(
-                              opacity:
-                                  _swapMode &&
-                                      !tappable &&
-                                      _selectedMyEntry != entry
-                                  ? 0.4
-                                  : 1.0,
-                              child: Card(
-                                color: _colorForEntry(entry),
-                                child: ListTile(
-                                  title: Text('Period ${entry['period_no']}'),
-                                  subtitle: Text(
-                                    '${entry['course_name'] ?? 'Unassigned'} • '
-                                    '${entry['faculty_name'] ?? 'No faculty'}',
-                                  ),
-                                  onTap: tappable
-                                      ? () => _onEntryTap(entry)
-                                      : null,
-                                ),
-                              ),
-                            );
-                          },
-                        );
-                      }).toList(),
-                    ),
-            ),
-          ],
+        ],
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(12.0),
+        child: WeeklyMatrixGridWidget(
+          key: _matrixKey,
+          classId: widget.classId,
+          className: widget.className,
+          userRole: 'faculty',
+          currentFacultyId: widget.facultyId,
         ),
       ),
     );
