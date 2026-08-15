@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'schedule_builder_screen.dart';
+import 'date_helpers.dart';
 
 class TimetableGridScreen extends StatefulWidget {
   final int classId;
@@ -164,20 +165,36 @@ class _TimetableGridScreenState extends State<TimetableGridScreen> {
           title: Text(widget.className),
           bottom: TabBar(
             isScrollable: true,
-            tabs: _days.map((d) => Tab(text: d)).toList(),
+            tabs: _days.map((d) {
+              final isToday = DateHelpers.isToday(d);
+              return Tab(
+                height: 52,
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      d,
+                      style: TextStyle(
+                        fontWeight: isToday
+                            ? FontWeight.bold
+                            : FontWeight.normal,
+                      ),
+                    ),
+                    Text(
+                      DateHelpers.labelForDayCode(d),
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: isToday ? Colors.blue : Colors.black54,
+                        fontWeight: isToday
+                            ? FontWeight.bold
+                            : FontWeight.normal,
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }).toList(),
           ),
-          actions: [
-            IconButton(
-              icon: Icon(_swapMode ? Icons.close : Icons.swap_horiz),
-              tooltip: _swapMode ? 'Cancel Swap' : 'Start Swap Request',
-              onPressed: () {
-                setState(() {
-                  _swapMode = !_swapMode;
-                  _selectedMyEntry = null;
-                });
-              },
-            ),
-          ],
         ),
         body: Column(
           children: [
@@ -237,6 +254,8 @@ class _TimetableGridScreenState extends State<TimetableGridScreen> {
                           itemBuilder: (context, index) {
                             final entry = dayEntries[index];
                             final tappable = _isTappable(entry);
+                            final isSwapped =
+                                entry['status_color'] == 'swapped';
                             return Opacity(
                               opacity:
                                   _swapMode &&
@@ -246,15 +265,41 @@ class _TimetableGridScreenState extends State<TimetableGridScreen> {
                                   : 1.0,
                               child: Card(
                                 color: _colorForEntry(entry),
-                                child: ListTile(
-                                  title: Text('Period ${entry['period_no']}'),
-                                  subtitle: Text(
-                                    '${entry['course_name'] ?? 'Unassigned'} • '
-                                    '${entry['faculty_name'] ?? 'No faculty'}',
-                                  ),
-                                  onTap: tappable
-                                      ? () => _onEntryTap(entry)
-                                      : null,
+                                child: Stack(
+                                  children: [
+                                    ListTile(
+                                      title: Text(
+                                        'Period ${entry['period_no']}',
+                                      ),
+                                      subtitle: Text(
+                                        '${entry['course_name'] ?? 'Unassigned'} • '
+                                        '${entry['faculty_name'] ?? 'No faculty'}',
+                                      ),
+                                      onTap: tappable
+                                          ? () => _onEntryTap(entry)
+                                          : null,
+                                    ),
+                                    if (isSwapped)
+                                      Positioned(
+                                        top: 6,
+                                        right: 6,
+                                        child: Tooltip(
+                                          message: 'Swapped period',
+                                          child: Container(
+                                            padding: const EdgeInsets.all(4),
+                                            decoration: BoxDecoration(
+                                              color: Colors.blue.shade700,
+                                              shape: BoxShape.circle,
+                                            ),
+                                            child: const Icon(
+                                              Icons.swap_horiz,
+                                              size: 14,
+                                              color: Colors.white,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                  ],
                                 ),
                               ),
                             );

@@ -22,6 +22,11 @@ class _FacultySwapRequestScreenState extends State<FacultySwapRequestScreen> {
   bool _isLoading = true;
   dynamic _selectedMyEntry;
 
+  static const TextStyle classHighlightStyle = TextStyle(
+    fontWeight: FontWeight.bold,
+    color: Color(0xFF1A237E),
+  );
+
   @override
   void initState() {
     super.initState();
@@ -48,7 +53,8 @@ class _FacultySwapRequestScreenState extends State<FacultySwapRequestScreen> {
 
         for (var entry in entries) {
           if (entry['course_id'] != null) {
-            entry['class_name'] = '${cls['year']} - ${cls['section']}';
+            entry['class_name'] =
+                '${cls['year']} - ${cls['department']} - ${cls['section']}';
             allEntries.add(entry);
           }
         }
@@ -93,6 +99,18 @@ class _FacultySwapRequestScreenState extends State<FacultySwapRequestScreen> {
     }
   }
 
+  Widget _classCourseTitle(dynamic entry) {
+    return RichText(
+      text: TextSpan(
+        style: DefaultTextStyle.of(context).style,
+        children: [
+          TextSpan(text: entry['class_name'], style: classHighlightStyle),
+          TextSpan(text: ' - ${entry['course_name']}'),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     // Filter: my own slots (for step 1)
@@ -134,9 +152,7 @@ class _FacultySwapRequestScreenState extends State<FacultySwapRequestScreen> {
                             final entry = myEntries[index];
                             return Card(
                               child: ListTile(
-                                title: Text(
-                                  '${entry['class_name']} - ${entry['course_name']}',
-                                ),
+                                title: _classCourseTitle(entry),
                                 subtitle: Text(
                                   '${entry['day_of_week']} Period ${entry['period_no']}',
                                 ),
@@ -170,10 +186,22 @@ class _FacultySwapRequestScreenState extends State<FacultySwapRequestScreen> {
                         ),
                       ),
                       const SizedBox(height: 4),
-                      Text(
-                        'You are giving up: ${_selectedMyEntry['class_name']} - '
-                        '${_selectedMyEntry['course_name']} '
-                        '(${_selectedMyEntry['day_of_week']} P${_selectedMyEntry['period_no']})',
+                      RichText(
+                        text: TextSpan(
+                          style: DefaultTextStyle.of(context).style,
+                          children: [
+                            const TextSpan(text: 'You are giving up: '),
+                            TextSpan(
+                              text: _selectedMyEntry['class_name'],
+                              style: classHighlightStyle,
+                            ),
+                            TextSpan(
+                              text:
+                                  ' - ${_selectedMyEntry['course_name']} '
+                                  '(${_selectedMyEntry['day_of_week']} P${_selectedMyEntry['period_no']})',
+                            ),
+                          ],
+                        ),
                       ),
                       TextButton(
                         onPressed: () {
@@ -198,9 +226,7 @@ class _FacultySwapRequestScreenState extends State<FacultySwapRequestScreen> {
                             final entry = otherEntries[index];
                             return Card(
                               child: ListTile(
-                                title: Text(
-                                  '${entry['class_name']} - ${entry['course_name']}',
-                                ),
+                                title: _classCourseTitle(entry),
                                 subtitle: Text(
                                   '${entry['faculty_name']} • ${entry['day_of_week']} Period ${entry['period_no']}',
                                 ),

@@ -20,6 +20,11 @@ class _FacultyOpenSlotsScreenState extends State<FacultyOpenSlotsScreen> {
   List<dynamic> _openEntries = [];
   bool _isLoading = true;
 
+  static const TextStyle classHighlightStyle = TextStyle(
+    fontWeight: FontWeight.bold,
+    color: Color(0xFF1A237E),
+  );
+
   @override
   void initState() {
     super.initState();
@@ -45,9 +50,12 @@ class _FacultyOpenSlotsScreenState extends State<FacultyOpenSlotsScreen> {
         final entries = jsonDecode(ttResponse.body);
 
         for (var entry in entries) {
-          if (entry['status_color'] == 'open_leave') {
+          // Don't show your own leave as something you can volunteer for.
+          if (entry['status_color'] == 'open_leave' &&
+              entry['faculty_id'] != widget.facultyId) {
             entry['class_id'] = cls['class_id'];
-            entry['class_name'] = '${cls['year']} - ${cls['section']}';
+            entry['class_name'] =
+                '${cls['year']} - ${cls['department']} - ${cls['section']}';
             allOpen.add(entry);
           }
         }
@@ -127,8 +135,17 @@ class _FacultyOpenSlotsScreenState extends State<FacultyOpenSlotsScreen> {
                 return Card(
                   color: Colors.orange.shade50,
                   child: ListTile(
-                    title: Text(
-                      '${entry['class_name']} - ${entry['course_name']}',
+                    title: RichText(
+                      text: TextSpan(
+                        style: DefaultTextStyle.of(context).style,
+                        children: [
+                          TextSpan(
+                            text: entry['class_name'],
+                            style: classHighlightStyle,
+                          ),
+                          TextSpan(text: ' - ${entry['course_name']}'),
+                        ],
+                      ),
                     ),
                     subtitle: Text(
                       '${entry['day_of_week']} Period ${entry['period_no']}',

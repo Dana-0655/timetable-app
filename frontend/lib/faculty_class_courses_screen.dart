@@ -74,21 +74,43 @@ class _FacultyClassCoursesScreenState extends State<FacultyClassCoursesScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // The timetable endpoint returns one row per period slot (including
+    // breaks and empty periods), and the same course repeats across every
+    // day/period it's scheduled. Filter down to one row per real, named
+    // course - same fix applied in ClassCoursesScreen.
+    final namedEntries = <dynamic>[];
+    final seenCourseIds = <int>{};
+    for (var e in _entries) {
+      if (e['course_name'] != null && !seenCourseIds.contains(e['course_id'])) {
+        namedEntries.add(e);
+        seenCourseIds.add(e['course_id']);
+      }
+    }
+
     return Scaffold(
       appBar: AppBar(title: Text('${widget.className} - Courses')),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : _entries.isEmpty
-          ? const Center(child: Text('No courses yet.'))
+          : namedEntries.isEmpty
+          ? const Center(
+              child: Padding(
+                padding: EdgeInsets.all(24),
+                child: Text(
+                  'No courses yet. The CC or Admin needs to build the '
+                  'timetable for this class first.',
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            )
           : ListView.builder(
               padding: const EdgeInsets.all(16),
-              itemCount: _entries.length,
+              itemCount: namedEntries.length,
               itemBuilder: (context, index) {
-                final entry = _entries[index];
+                final entry = namedEntries[index];
                 final hasFaculty = entry['faculty_name'] != null;
                 return Card(
                   child: ListTile(
-                    title: Text(entry['course_name'] ?? 'Unnamed'),
+                    title: Text(entry['course_name']),
                     subtitle: Text(
                       hasFaculty
                           ? 'Faculty: ${entry['faculty_name']}'

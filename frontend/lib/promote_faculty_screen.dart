@@ -78,6 +78,8 @@ class _PromoteFacultyScreenState extends State<PromoteFacultyScreen> {
           SnackBar(content: Text(data['message'] ?? data['error'] ?? 'Done')),
         );
       }
+      // Refresh the list so the promoted faculty now shows "Promoted Admin"
+      _fetchFaculty();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -100,15 +102,31 @@ class _PromoteFacultyScreenState extends State<PromoteFacultyScreen> {
               itemCount: _facultyList.length,
               itemBuilder: (context, index) {
                 final f = _facultyList[index];
+                final bool isAdmin = f['is_admin'] == true;
+
                 return Card(
                   child: ListTile(
                     title: Text(f['name']),
                     subtitle: Text(f['email']),
-                    trailing: ElevatedButton(
-                      onPressed: () =>
-                          _confirmPromote(f['faculty_id'], f['name']),
-                      child: const Text('Make Admin'),
-                    ),
+                    trailing: isAdmin
+                        ? Chip(
+                            label: const Text('Promoted Admin'),
+                            avatar: const Icon(
+                              Icons.verified,
+                              size: 18,
+                              color: Colors.green,
+                            ),
+                            backgroundColor: Colors.green.shade50,
+                            labelStyle: TextStyle(
+                              color: Colors.green.shade800,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          )
+                        : ElevatedButton(
+                            onPressed: () =>
+                                _confirmPromote(f['faculty_id'], f['name']),
+                            child: const Text('Make Admin'),
+                          ),
                   ),
                 );
               },

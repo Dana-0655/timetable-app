@@ -88,7 +88,7 @@ class _SemesterManagementScreenState extends State<SemesterManagementScreen> {
     }
   }
 
-  Future<void> _switchSemester(int semesterId) async {
+  Future<void> _switchSemesterForEveryone(int semesterId) async {
     final url = Uri.parse('http://127.0.0.1:5000/switch_semester');
     try {
       final response = await http.post(
@@ -101,15 +101,55 @@ class _SemesterManagementScreenState extends State<SemesterManagementScreen> {
       );
       if (response.statusCode == 200) {
         if (mounted) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(const SnackBar(content: Text('Semester switched!')));
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Semester switched for everyone!')),
+          );
         }
         _fetchSemesters();
       }
     } catch (e) {
       // Silently fail for now
     }
+  }
+
+  /// Ask the admin whether this semester switch should apply to everyone
+  /// (students, faculty, CC, other admins) or just their own view.
+  void _confirmSwitchSemester(Map sem) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Switch Semester'),
+        content: Text(
+          'Do you want to change the semester to "${sem['semester_name']}" '
+          'for all users - students, faculty, CC, and other admins?\n\n'
+          'Choosing "Just for me" will only change what you see. '
+          'Everyone else stays on the current active semester.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          OutlinedButton(
+            onPressed: () {
+              Navigator.pop(dialogContext); // close the dialog
+              Navigator.pop(context, {
+                'local_semester_id': sem['semester_id'],
+                'semester_name': sem['semester_name'],
+              }); // return to Admin Dashboard with a local-only selection
+            },
+            child: const Text('Just for me'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(dialogContext);
+              await _switchSemesterForEveryone(sem['semester_id']);
+            },
+            child: const Text('For everyone'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _confirmDelete(int semesterId, String semesterName) {
@@ -178,8 +218,7 @@ class _SemesterManagementScreenState extends State<SemesterManagementScreen> {
                       children: [
                         if (!isActive)
                           TextButton(
-                            onPressed: () =>
-                                _switchSemester(sem['semester_id']),
+                            onPressed: () => _confirmSwitchSemester(sem),
                             child: const Text('Switch'),
                           ),
                         IconButton(

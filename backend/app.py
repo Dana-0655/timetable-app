@@ -206,6 +206,37 @@ def check_pending_leaves():
             else:
                 print(f"[DEBUG] Not in reminder window yet.")
 
+def get_or_create_faculty_for_admin(admin):
+    """Finds this admin's linked Faculty row by email, or creates one
+    on the fly so the admin can be assigned as CC / course faculty."""
+    faculty = Faculty.query.filter_by(email=admin.email).first()
+    if faculty:
+        return faculty
+    faculty = Faculty(
+        college_id=admin.college_id,
+        name=admin.name,
+        email=admin.email,
+        password_hash=admin.password_hash,
+        subject_expertise=admin.department_name or ""
+    )
+    db.session.add(faculty)
+    db.session.commit()
+    return faculty
+
+
+@app.route("/admin_ensure_faculty_identity", methods=["POST"])
+def admin_ensure_faculty_identity():
+    data = request.get_json()
+    admin = Admin.query.get(data["admin_id"])
+    if not admin:
+        return jsonify({"error": "Admin not found"}), 404
+
+    faculty = get_or_create_faculty_for_admin(admin)
+    return jsonify({
+        "faculty_id": faculty.faculty_id,
+        "faculty_name": faculty.name
+    })
+
 @app.route("/")
 def home():
     return "Timetable App Backend is Running!"
@@ -213,6 +244,21 @@ def home():
 @app.route("/admin_invite_cc", methods=["POST"])
 def admin_invite_cc():
     data = request.get_json()
+
+    class_obj = Class.query.get(data["class_id"])
+    if not class_obj:
+        return jsonify({"error": "Class not found"}), 404
+
+    if class_obj.cc_faculty_id is not None:
+        return jsonify({"error": "This class already has a CC assigned"}), 400
+
+    existing = CCRequest.query.filter_by(
+        class_id=data["class_id"],
+        faculty_id=data["faculty_id"],
+        status="pending"
+    ).first()
+    if existing:
+        return jsonify({"error": "This faculty already has a pending CC invite for this class"}), 400
 
     new_request = CCRequest(
         class_id=data["class_id"],
@@ -223,18 +269,71 @@ def admin_invite_cc():
     db.session.add(new_request)
     db.session.commit()
 
-    class_obj = Class.query.get(data["class_id"])
     create_notification(
         "faculty", data["faculty_id"],
-        f"You've been invited to be CC for {class_obj.year} - {class_obj.section}",
+        f"You've been invited to be CC for {class_obj.year} - {class_obj.department} - {class_obj.section}",
         "cc_invite", reference_id=new_request.cc_request_id
     )
 
     return jsonify({"message": "Invitation sent to faculty!", "request_id": new_request.cc_request_id})
 
+
+@app.route("/request_cc", methods=["POST"])
+def request_cc():
+    data = request.get_json()
+
+    class_obj = Class.query.get(data["class_id"])
+    if not class_obj:
+        return jsonify({"error": "Class not found"}), 404
+    if class_obj.cc_faculty_id is not None:
+        return jsonify({"error": "This class already has a CC assigned"}), 400
+
+    existing = CCRequest.query.filter_by(
+        class_id=data["class_id"],
+        faculty_id=data["faculty_id"],
+        status="pending"
+    ).first()
+    if existing:
+        return jsonify({"error": "You already have a pending CC request for this class"}), 400
+
+    new_request = CCRequest(
+        class_id=data["class_id"],
+        faculty_id=data["faculty_id"],
+        initiated_by="faculty",
+        status="pending"
+    )
+    db.session.add(new_request)
+    db.session.commit()
+
+    faculty = Faculty.query.get(data["faculty_id"])
+    admin = Admin.query.filter_by(college_id=class_obj.college_id).first()
+    if admin:
+        create_notification(
+            "admin", admin.admin_id,
+            f"{faculty.name} requested to be CC for {class_obj.year} - {class_obj.department} - {class_obj.section}",
+            "cc_invite", reference_id=new_request.cc_request_id
+        )
+
+    return jsonify({"message": "CC request sent successfully!", "request_id": new_request.cc_request_id})
+
 @app.route("/admin_invite_course_faculty", methods=["POST"])
 def admin_invite_course_faculty():
     data = request.get_json()
+
+    course = Course.query.get(data["course_id"])
+    if not course:
+        return jsonify({"error": "Course not found"}), 404
+
+    if course.faculty_id is not None:
+        return jsonify({"error": "This course already has a faculty assigned"}), 400
+
+    existing = CourseFacultyRequest.query.filter_by(
+        course_id=data["course_id"],
+        faculty_id=data["faculty_id"],
+        status="pending"
+    ).first()
+    if existing:
+        return jsonify({"error": "This faculty already has a pending invite for this course"}), 400
 
     new_request = CourseFacultyRequest(
         course_id=data["course_id"],
@@ -245,14 +344,193 @@ def admin_invite_course_faculty():
     db.session.add(new_request)
     db.session.commit()
 
-    course = Course.query.get(data["course_id"])
+    class_obj = Class.query.get(course.class_id)
+    class_label = f"{class_obj.year} - {class_obj.department} - {class_obj.section}"
     create_notification(
         "faculty", data["faculty_id"],
-        f"You've been invited to teach {course.course_name}",
+        f"You've been invited to teach {course.course_name} for {class_label}",
         "course_invite", reference_id=new_request.cf_request_id
     )
 
     return jsonify({"message": "Invitation sent to faculty!", "request_id": new_request.cf_request_id})
+
+
+@app.route("/request_course_faculty", methods=["POST"])
+def request_course_faculty():
+    data = request.get_json()
+
+    course = Course.query.get(data["course_id"])
+    if not course:
+        return jsonify({"error": "Course not found"}), 404
+    if course.faculty_id is not None:
+        return jsonify({"error": "This course already has a faculty assigned"}), 400
+
+    existing = CourseFacultyRequest.query.filter_by(
+        course_id=data["course_id"],
+        faculty_id=data["faculty_id"],
+        status="pending"
+    ).first()
+    if existing:
+        return jsonify({"error": "You already have a pending request for this course"}), 400
+
+    new_request = CourseFacultyRequest(
+        course_id=data["course_id"],
+        faculty_id=data["faculty_id"],
+        initiated_by="faculty",
+        status="pending"
+    )
+    db.session.add(new_request)
+    db.session.commit()
+
+    faculty = Faculty.query.get(data["faculty_id"])
+    class_obj = Class.query.get(course.class_id)
+    class_label = f"{class_obj.year} - {class_obj.department} - {class_obj.section}"
+    admin = Admin.query.filter_by(college_id=class_obj.college_id).first()
+    if admin:
+        create_notification(
+            "admin", admin.admin_id,
+            f"{faculty.name} requested to teach {course.course_name} for {class_label}",
+            "course_invite", reference_id=new_request.cf_request_id
+        )
+
+    return jsonify({"message": "Course faculty request sent!", "request_id": new_request.cf_request_id})
+
+
+@app.route("/resolve_course_faculty_request", methods=["POST"])
+def resolve_course_faculty_request():
+    data = request.get_json()
+    cf_request = CourseFacultyRequest.query.get(data["cf_request_id"])
+
+    if not cf_request:
+        return jsonify({"error": "Request not found"}), 404
+
+    course = Course.query.get(cf_request.course_id)
+    class_obj = Class.query.get(course.class_id)
+    class_label = f"{class_obj.year} - {class_obj.department} - {class_obj.section}"
+
+    if cf_request.status != "pending":
+        if cf_request.status == "rejected" and course.faculty_id is not None:
+            other = Faculty.query.get(course.faculty_id)
+            other_name = other.name if other else "another faculty member"
+            return jsonify({
+                "error": f"This invitation is no longer available — {other_name} "
+                         f"was already assigned to teach {course.course_name} for {class_label}."
+            }), 400
+        return jsonify({"error": "This invitation is no longer available."}), 400
+
+    if data["decision"] == "accepted" and course.faculty_id is not None:
+        return jsonify({"error": "This course already has a faculty assigned"}), 400
+
+    cf_request.status = data["decision"]
+    cf_request.resolved_at = db.func.now()
+
+    if data["decision"] == "accepted":
+        course.faculty_id = cf_request.faculty_id
+
+        other_pending = CourseFacultyRequest.query.filter(
+            CourseFacultyRequest.course_id == cf_request.course_id,
+            CourseFacultyRequest.cf_request_id != cf_request.cf_request_id,
+            CourseFacultyRequest.status == "pending"
+        ).all()
+        for other in other_pending:
+            other.status = "rejected"
+            other.resolved_at = db.func.now()
+            create_notification(
+                "faculty", other.faculty_id,
+                f"Your request to teach {course.course_name} for {class_label} was "
+                f"automatically declined because another faculty was assigned first.",
+                "course_response"
+            )
+
+    db.session.commit()
+
+    faculty = Faculty.query.get(cf_request.faculty_id)
+    create_notification(
+        "faculty", faculty.faculty_id,
+        f"Your request to teach {course.course_name} for {class_label} was {data['decision']}",
+        "course_response"
+    )
+    if cf_request.initiated_by == "faculty":
+        admin = Admin.query.filter_by(college_id=class_obj.college_id).first()
+        if admin:
+            create_notification(
+                "admin", admin.admin_id,
+                f"{faculty.name}'s request to teach {course.course_name} for {class_label} was {data['decision']}",
+                "course_response"
+            )
+    return jsonify({"message": f"Course faculty request {data['decision']} successfully!"})
+
+@app.route("/resolve_cc_request", methods=["POST"])
+def resolve_cc_request():
+    data = request.get_json()
+
+    cc_request = CCRequest.query.get(data["cc_request_id"])
+    if not cc_request:
+        return jsonify({"error": "Request not found"}), 404
+
+    class_obj = Class.query.get(cc_request.class_id)
+    class_label = f"{class_obj.year} - {class_obj.department} - {class_obj.section}"
+
+    if cc_request.status != "pending":
+        if cc_request.status == "rejected" and class_obj.cc_faculty_id is not None:
+            other = Faculty.query.get(class_obj.cc_faculty_id)
+            other_name = other.name if other else "another faculty member"
+            return jsonify({
+                "error": f"This invitation is no longer available — {other_name} "
+                         f"was already assigned as CC for {class_label}."
+            }), 400
+        return jsonify({"error": "This invitation is no longer available."}), 400
+
+    if data["decision"] == "accepted" and class_obj.cc_faculty_id is not None:
+        return jsonify({"error": "This class already has a CC assigned"}), 400
+
+    cc_request.status = data["decision"]
+    cc_request.resolved_at = db.func.now()
+
+    if data["decision"] == "accepted":
+        old_classes = Class.query.filter(
+            Class.cc_faculty_id == cc_request.faculty_id,
+            Class.class_id != cc_request.class_id
+        ).all()
+        for old_class in old_classes:
+            old_class.cc_faculty_id = None
+
+        class_obj.cc_faculty_id = cc_request.faculty_id
+
+        other_pending = CCRequest.query.filter(
+            CCRequest.class_id == cc_request.class_id,
+            CCRequest.cc_request_id != cc_request.cc_request_id,
+            CCRequest.status == "pending"
+        ).all()
+        for other in other_pending:
+            other.status = "rejected"
+            other.resolved_at = db.func.now()
+            create_notification(
+                "faculty", other.faculty_id,
+                f"Your CC request for {class_label} was automatically declined "
+                f"because another faculty was assigned first.",
+                "cc_response"
+            )
+
+    db.session.commit()
+
+    faculty = Faculty.query.get(cc_request.faculty_id)
+    create_notification(
+        "faculty", faculty.faculty_id,
+        f"Your CC request for {class_label} was {data['decision']}",
+        "cc_response"
+    )
+    if cc_request.initiated_by == "faculty":
+        admin = Admin.query.filter_by(college_id=class_obj.college_id).first()
+        if admin:
+            create_notification(
+                "admin", admin.admin_id,
+                f"{faculty.name}'s CC request for {class_label} was {data['decision']}",
+                "cc_response"
+            )
+
+    return jsonify({"message": f"CC request {data['decision']} successfully!"})
+
 
 @app.route("/faculty_cc_invites/<int:faculty_id>", methods=["GET"])
 def get_faculty_cc_invites(faculty_id):
@@ -420,32 +698,6 @@ def get_classes(college_id):
         })
     return jsonify(result)
 
-@app.route("/request_cc", methods=["POST"])
-def request_cc():
-  
-    data = request.get_json()
-
-    new_request = CCRequest(
-        class_id=data["class_id"],
-        faculty_id=data["faculty_id"],
-        initiated_by="faculty",
-        status="pending"
-    )
-    db.session.add(new_request)
-    db.session.commit()
-
-    faculty = Faculty.query.get(data["faculty_id"])
-    class_obj = Class.query.get(data["class_id"])
-    admin = Admin.query.filter_by(college_id=class_obj.college_id).first()
-    if admin:
-         create_notification(
-        "admin", admin.admin_id,
-        f"{faculty.name} requested to be CC for {class_obj.year} - {class_obj.section}",
-        "cc_invite", reference_id=new_request.cc_request_id
-    )
-
-    return jsonify({"message": "CC request sent successfully!", "request_id": new_request.cc_request_id})
-
 @app.route("/cc_requests/<int:class_id>", methods=["GET"])
 def get_cc_requests(class_id):
     requests = CCRequest.query.filter_by(class_id=class_id, status="pending").all()
@@ -478,82 +730,6 @@ def add_course():
     db.session.add(new_course)
     db.session.commit()
     return jsonify({"message": "Course added successfully!", "course_id": new_course.course_id})
-
-@app.route("/request_course_faculty", methods=["POST"])
-def request_course_faculty():
-    data = request.get_json()
-    new_request = CourseFacultyRequest(
-        course_id=data["course_id"],
-        faculty_id=data["faculty_id"],
-        initiated_by="faculty",
-        status="pending"
-    )
-    db.session.add(new_request)
-    db.session.commit()
-
-    faculty = Faculty.query.get(data["faculty_id"])
-    course = Course.query.get(data["course_id"])
-    class_obj = Class.query.get(course.class_id)
-    admin = Admin.query.filter_by(college_id=class_obj.college_id).first()
-    if admin:
-        create_notification(
-            "admin", admin.admin_id,
-            f"{faculty.name} requested to teach {course.course_name}",
-            "course_invite", reference_id=new_request.cf_request_id
-        )
-
-    return jsonify({"message": "Course faculty request sent!", "request_id": new_request.cf_request_id})
-
-@app.route("/course_faculty_requests/<int:course_id>", methods=["GET"])
-def get_course_faculty_requests(course_id):
-    requests = CourseFacultyRequest.query.filter_by(course_id=course_id, status="pending").all()
-    result = []
-    for r in requests:
-        faculty = Faculty.query.get(r.faculty_id)
-        result.append({
-            "cf_request_id": r.cf_request_id,
-            "faculty_id": r.faculty_id,
-            "faculty_name": faculty.name,
-            "status": r.status
-        })
-    return jsonify(result)
-
-@app.route("/resolve_course_faculty_request", methods=["POST"])
-def resolve_course_faculty_request():
-    data = request.get_json()
-    cf_request = CourseFacultyRequest.query.get(data["cf_request_id"])
-
-    if not cf_request:
-        return jsonify({"error": "Request not found"}), 404
-    if cf_request.status != "pending":
-        return jsonify({"error": "This request has already been resolved"}), 400
-
-    cf_request.status = data["decision"]
-    cf_request.resolved_at = db.func.now()
-
-    if data["decision"] == "accepted":
-        course = Course.query.get(cf_request.course_id)
-        course.faculty_id = cf_request.faculty_id
-
-    db.session.commit()
-
-    faculty = Faculty.query.get(cf_request.faculty_id)
-    course = Course.query.get(cf_request.course_id)
-    create_notification(
-        "faculty", faculty.faculty_id,
-        f"Your request to teach {course.course_name} was {data['decision']}",
-        "course_response"
-    )
-    if cf_request.initiated_by == "faculty":
-        class_obj = Class.query.get(course.class_id)
-        admin = Admin.query.filter_by(college_id=class_obj.college_id).first()
-        if admin:
-            create_notification(
-                "admin", admin.admin_id,
-                f"{faculty.name}'s request to teach {course.course_name} was {data['decision']}",
-                "course_response"
-            )
-    return jsonify({"message": f"Course faculty request {data['decision']} successfully!"})
 
 @app.route("/set_timetable_config", methods=["POST"])
 def set_timetable_config():
@@ -671,6 +847,61 @@ def mark_leave():
 
     return jsonify({"message": "Leave marked and slot highlighted!", "leave_id": new_leave.leave_id})
 
+@app.route("/unmark_leave", methods=["POST"])
+def unmark_leave():
+    data = request.get_json()
+    leave = Leave.query.filter_by(
+        entry_id=data["entry_id"],
+        faculty_id=data["faculty_id"]
+    ).first()
+
+    if not leave:
+        return jsonify({"error": "No leave found to unmark"}), 404
+
+    entry = TimetableEntry.query.get(leave.entry_id)
+    class_obj = Class.query.get(entry.class_id)
+
+    # If a substitute was already confirmed, let them know they're no
+    # longer covering this period before we clear it.
+    if leave.status == "confirmed" and leave.confirmed_faculty_id:
+        substitute = Faculty.query.get(leave.confirmed_faculty_id)
+        if substitute:
+            create_notification(
+                "faculty", substitute.faculty_id,
+                f"You're no longer covering {class_obj.year} - {class_obj.department} - "
+                f"{class_obj.section}, {entry.day_of_week} Period {entry.period_no} — "
+                f"the original leave was cancelled.",
+                "cover_request"
+            )
+
+    # Notify anyone who had a pending (not-yet-confirmed) volunteer offer too
+    pending_covers = CoverRequest.query.filter_by(
+        leave_id=leave.leave_id, status="pending"
+    ).all()
+    for cr in pending_covers:
+        volunteer = Faculty.query.get(cr.requesting_faculty_id)
+        create_notification(
+            "faculty", volunteer.faculty_id,
+            f"The {class_obj.year} - {class_obj.department} - {class_obj.section}, "
+            f"{entry.day_of_week} Period {entry.period_no} slot you volunteered "
+            f"for is no longer open — the leave was cancelled.",
+            "cover_request"
+        )
+
+    # Restore the slot to how it was before the leave — normal color,
+    # original faculty's period, no substitute.
+    entry.status_color = "normal"
+
+    # Delete ALL cover requests tied to this leave (pending, accepted, or
+    # rejected) — otherwise the foreign key to leave_id blocks deleting
+    # the leave row itself.
+    CoverRequest.query.filter_by(leave_id=leave.leave_id).delete()
+
+    db.session.delete(leave)
+    db.session.commit()
+
+    return jsonify({"message": "Leave unmarked — the period is back to normal."})
+
 @app.route("/send_cover_request", methods=["POST"])
 def send_cover_request():
     data = request.get_json()
@@ -686,6 +917,20 @@ def send_cover_request():
     leave = Leave.query.get(data["leave_id"])
     leave.status = "pending_requests"
     db.session.commit()
+
+    entry = TimetableEntry.query.get(leave.entry_id)
+    class_obj = Class.query.get(entry.class_id)
+    volunteer = Faculty.query.get(data["requesting_faculty_id"])
+    course = Course.query.get(entry.course_id) if entry.course_id else None
+
+    create_notification(
+        "faculty", leave.faculty_id,
+        f"{volunteer.name} volunteered to cover your "
+        f"{class_obj.year} - {class_obj.department} - {class_obj.section}, "
+        f"{entry.day_of_week} Period {entry.period_no}"
+        f"{f' ({course.course_name})' if course else ''}",
+        "cover_request", reference_id=new_cover_req.cover_req_id
+    )
 
     return jsonify({"message": "Cover request sent!", "cover_req_id": new_cover_req.cover_req_id})
 
@@ -745,7 +990,6 @@ def confirm_cover_request():
     )
 
     return jsonify({"message": "Cover request confirmed successfully!"})
-
 @app.route("/send_swap_request", methods=["POST"])
 def send_swap_request():
     data = request.get_json()
@@ -760,9 +1004,23 @@ def send_swap_request():
     db.session.commit()
 
     requester = Faculty.query.get(data["requester_faculty_id"])
+    requester_entry = TimetableEntry.query.get(data["requester_entry_id"])
+    target_entry = TimetableEntry.query.get(data["target_entry_id"])
+    requester_class = Class.query.get(requester_entry.class_id)
+    target_class = Class.query.get(target_entry.class_id)
+
+    requester_slot = (
+        f"{requester_class.year} - {requester_class.department} - {requester_class.section}, "
+        f"{requester_entry.day_of_week} Period {requester_entry.period_no}"
+    )
+    target_slot = (
+        f"{target_class.year} - {target_class.department} - {target_class.section}, "
+        f"{target_entry.day_of_week} Period {target_entry.period_no}"
+    )
+
     create_notification(
         "faculty", data["target_faculty_id"],
-        f"{requester.name} sent you a swap request",
+        f"{requester.name} wants to swap: their {requester_slot} for your {target_slot}",
         "swap_request", reference_id=new_swap.swap_id
     )
 
@@ -776,13 +1034,24 @@ def get_swap_requests(target_faculty_id):
         requester = Faculty.query.get(r.requester_faculty_id)
         requester_entry = TimetableEntry.query.get(r.requester_entry_id)
         target_entry = TimetableEntry.query.get(r.target_entry_id)
+        requester_class = Class.query.get(requester_entry.class_id)
+        target_class = Class.query.get(target_entry.class_id)
+        requester_course = Course.query.get(requester_entry.course_id) if requester_entry.course_id else None
+        target_course = Course.query.get(target_entry.course_id) if target_entry.course_id else None
+
         result.append({
             "swap_id": r.swap_id,
             "requester_name": requester.name,
+            "requester_class": f"{requester_class.year} - {requester_class.department} - {requester_class.section}",
             "requester_slot": f"{requester_entry.day_of_week} Period {requester_entry.period_no}",
-            "target_slot": f"{target_entry.day_of_week} Period {target_entry.period_no}"
+            "requester_course": requester_course.course_name if requester_course else None,
+            "target_class": f"{target_class.year} - {target_class.department} - {target_class.section}",
+            "target_slot": f"{target_entry.day_of_week} Period {target_entry.period_no}",
+            "target_course": target_course.course_name if target_course else None,
+            "requested_at": r.requested_at.strftime("%Y-%m-%d %H:%M") if r.requested_at else ""
         })
     return jsonify(result)
+
 
 @app.route("/resolve_swap_request", methods=["POST"])
 def resolve_swap_request():
@@ -798,9 +1067,12 @@ def resolve_swap_request():
     swap.resolved_at = db.func.now()
     swap.rejection_reason = data.get("rejection_reason", "")
 
+    requester_entry = TimetableEntry.query.get(swap.requester_entry_id)
+    target_entry = TimetableEntry.query.get(swap.target_entry_id)
+    requester_class = Class.query.get(requester_entry.class_id)
+    target_class = Class.query.get(target_entry.class_id)
+
     if data["decision"] == "accepted":
-        requester_entry = TimetableEntry.query.get(swap.requester_entry_id)
-        target_entry = TimetableEntry.query.get(swap.target_entry_id)
         requester_entry.course_id, target_entry.course_id = target_entry.course_id, requester_entry.course_id
         requester_entry.status_color = "swapped"
         target_entry.status_color = "swapped"
@@ -808,59 +1080,21 @@ def resolve_swap_request():
     db.session.commit()
 
     requester = Faculty.query.get(swap.requester_faculty_id)
+    requester_slot = (
+        f"{requester_class.year} - {requester_class.department} - {requester_class.section}, "
+        f"{requester_entry.day_of_week} Period {requester_entry.period_no}"
+    )
+    target_slot = (
+        f"{target_class.year} - {target_class.department} - {target_class.section}, "
+        f"{target_entry.day_of_week} Period {target_entry.period_no}"
+    )
     create_notification(
         "faculty", requester.faculty_id,
-        f"Your swap request was {data['decision']}",
+        f"Your swap request ({requester_slot} \u2194 {target_slot}) was {data['decision']}",
         "swap_response"
     )
 
     return jsonify({"message": f"Swap request {data['decision']} successfully!"})
-
-@app.route("/resolve_cc_request", methods=["POST"])
-def resolve_cc_request():
-    data = request.get_json()
-
-    cc_request = CCRequest.query.get(data["cc_request_id"])
-    if not cc_request:
-        return jsonify({"error": "Request not found"}), 404
-
-    if cc_request.status != "pending":
-        return jsonify({"error": "This request has already been resolved"}), 400
-
-    cc_request.status = data["decision"]
-    cc_request.resolved_at = db.func.now()
-
-    if data["decision"] == "accepted":
-        # Clear this faculty from any OTHER class where they're currently CC
-        old_classes = Class.query.filter(
-            Class.cc_faculty_id == cc_request.faculty_id,
-            Class.class_id != cc_request.class_id
-        ).all()
-        for old_class in old_classes:
-            old_class.cc_faculty_id = None
-
-        class_obj = Class.query.get(cc_request.class_id)
-        class_obj.cc_faculty_id = cc_request.faculty_id
-
-    db.session.commit()
-
-    faculty = Faculty.query.get(cc_request.faculty_id)
-    class_obj = Class.query.get(cc_request.class_id)
-    create_notification(
-        "faculty", faculty.faculty_id,
-        f"Your CC request for {class_obj.year} - {class_obj.section} was {data['decision']}",
-        "cc_response"
-    )
-    if cc_request.initiated_by == "faculty":
-        admin = Admin.query.filter_by(college_id=class_obj.college_id).first()
-        if admin:
-            create_notification(
-                "admin", admin.admin_id,
-                f"{faculty.name}'s CC request for {class_obj.year} - {class_obj.section} was {data['decision']}",
-                "cc_response"
-            )
-
-    return jsonify({"message": f"CC request {data['decision']} successfully!"})
 
 @app.route("/mark_day_leave", methods=["POST"])
 def mark_day_leave():
@@ -1144,10 +1378,12 @@ def get_faculty_list(college_id):
     faculty = Faculty.query.filter_by(college_id=college_id).all()
     result = []
     for f in faculty:
+        is_admin = Admin.query.filter_by(email=f.email).first() is not None
         result.append({
             "faculty_id": f.faculty_id,
             "name": f.name,
-            "email": f.email
+            "email": f.email,
+            "is_admin": is_admin
         })
     return jsonify(result)
 
@@ -1443,10 +1679,237 @@ def get_cc_request_detail(cc_request_id):
         "status": cc_request.status
     })
 
-if os.environ.get('WERKZEUG_RUN_MAIN') == 'true' or not app.debug:
-    scheduler = BackgroundScheduler()
-    scheduler.add_job(check_pending_leaves, 'interval', minutes=1)
-    scheduler.start()
+@app.route("/classes_by_semester/<int:semester_id>", methods=["GET"])
+def get_classes_by_semester(semester_id):
+    classes = Class.query.filter_by(semester_id=semester_id).all()
+    result = []
+    for c in classes:
+        result.append({
+            "class_id": c.class_id,
+            "year": c.year,
+            "section": c.section,
+            "department": c.department,
+            "cc_faculty_id": c.cc_faculty_id
+        })
+    return jsonify(result)
+
+@app.route("/admin_faculty_context/<int:admin_id>", methods=["GET"])
+def get_admin_faculty_context(admin_id):
+    admin = Admin.query.get(admin_id)
+    if not admin:
+        return jsonify({"error": "Admin not found"}), 404
+
+    faculty = Faculty.query.filter_by(email=admin.email).first()
+    if not faculty:
+        return jsonify({"has_faculty_record": False})
+
+    return jsonify({
+        "has_faculty_record": True,
+        "faculty_id": faculty.faculty_id,
+        "faculty_name": faculty.name
+    })
+
+@app.route("/admin_self_assign_cc", methods=["POST"])
+def admin_self_assign_cc():
+    data = request.get_json()
+    class_id = data["class_id"]
+    faculty_id = data["faculty_id"]
+
+    class_obj = Class.query.get(class_id)
+    if not class_obj:
+        return jsonify({"error": "Class not found"}), 404
+
+    faculty = Faculty.query.get(faculty_id)
+    if not faculty:
+        return jsonify({"error": "Faculty record not found"}), 404
+
+    # Clear this faculty from any OTHER class where they're currently CC,
+    # same rule the normal accept-flow enforces (one CC class at a time).
+    old_classes = Class.query.filter(
+        Class.cc_faculty_id == faculty_id,
+        Class.class_id != class_id
+    ).all()
+    for old_class in old_classes:
+        old_class.cc_faculty_id = None
+
+    class_obj.cc_faculty_id = faculty_id
+    db.session.commit()
+
+    return jsonify({
+        "message": f"You are now CC for {class_obj.year} - {class_obj.section}!"
+    })
+
+@app.route("/swap_responses/<int:faculty_id>", methods=["GET"])
+def get_swap_responses(faculty_id):
+    requests = SwapRequest.query.filter(
+        SwapRequest.requester_faculty_id == faculty_id,
+        SwapRequest.status != "pending"
+    ).order_by(SwapRequest.resolved_at.desc()).all()
+
+    result = []
+    for r in requests:
+        requester_entry = TimetableEntry.query.get(r.requester_entry_id)
+        target_entry = TimetableEntry.query.get(r.target_entry_id)
+        requester_class = Class.query.get(requester_entry.class_id)
+        target_class = Class.query.get(target_entry.class_id)
+        target_faculty = Faculty.query.get(r.target_faculty_id)
+        requester_course = Course.query.get(requester_entry.course_id) if requester_entry.course_id else None
+        target_course = Course.query.get(target_entry.course_id) if target_entry.course_id else None
+
+        result.append({
+            "swap_id": r.swap_id,
+            "status": r.status,
+            "target_name": target_faculty.name if target_faculty else "Unknown",
+            "your_class": f"{requester_class.year} - {requester_class.department} - {requester_class.section}",
+            "your_slot": f"{requester_entry.day_of_week} Period {requester_entry.period_no}",
+            "your_course": requester_course.course_name if requester_course else "Unassigned",
+            "their_class": f"{target_class.year} - {target_class.department} - {target_class.section}",
+            "their_slot": f"{target_entry.day_of_week} Period {target_entry.period_no}",
+            "their_course": target_course.course_name if target_course else "Unassigned",
+            "rejection_reason": r.rejection_reason or "",
+            "resolved_at": r.resolved_at.strftime("%Y-%m-%d %H:%M") if r.resolved_at else ""
+        })
+    return jsonify(result)
+
+
+@app.route("/admin_self_assign_course_faculty", methods=["POST"])
+def admin_self_assign_course_faculty():
+    data = request.get_json()
+    course_id = data["course_id"]
+    faculty_id = data["faculty_id"]
+
+    course = Course.query.get(course_id)
+    if not course:
+        return jsonify({"error": "Course not found"}), 404
+
+    faculty = Faculty.query.get(faculty_id)
+    if not faculty:
+        return jsonify({"error": "Faculty record not found"}), 404
+
+    course.faculty_id = faculty_id
+    db.session.commit()
+
+    return jsonify({
+        "message": f"You are now teaching {course.course_name}!"
+    })
+
+@app.route("/update_class", methods=["POST"])
+def update_class():
+    data = request.get_json()
+    class_obj = Class.query.get(data["class_id"])
+    if not class_obj:
+        return jsonify({"error": "Class not found"}), 404
+
+    new_year = data["year"].strip()
+    new_section = data["section"].strip()
+    new_department = data["department"].strip()
+
+    # Prevent creating a duplicate of another class in the same semester
+    existing = Class.query.filter(
+        Class.college_id == class_obj.college_id,
+        Class.semester_id == class_obj.semester_id,
+        Class.year == new_year,
+        Class.section == new_section,
+        Class.department == new_department,
+        Class.class_id != class_obj.class_id
+    ).first()
+    if existing:
+        return jsonify({"error": "A class with these details already exists in this semester"}), 400
+
+    class_obj.year = new_year
+    class_obj.section = new_section
+    class_obj.department = new_department
+    db.session.commit()
+
+    return jsonify({"message": "Class updated successfully!"})
+
+@app.route("/my_sent_swap_requests/<int:faculty_id>", methods=["GET"])
+def get_my_sent_swap_requests(faculty_id):
+    requests = SwapRequest.query.filter_by(
+        requester_faculty_id=faculty_id
+    ).order_by(SwapRequest.requested_at.desc()).all()
+
+    result = []
+    for r in requests:
+        requester_entry = TimetableEntry.query.get(r.requester_entry_id)
+        target_entry = TimetableEntry.query.get(r.target_entry_id)
+        requester_class = Class.query.get(requester_entry.class_id)
+        target_class = Class.query.get(target_entry.class_id)
+        target_faculty = Faculty.query.get(r.target_faculty_id)
+        requester_course = Course.query.get(requester_entry.course_id) if requester_entry.course_id else None
+        target_course = Course.query.get(target_entry.course_id) if target_entry.course_id else None
+
+        result.append({
+            "swap_id": r.swap_id,
+            "status": r.status,
+            "target_name": target_faculty.name if target_faculty else "Unknown",
+            "requester_class": f"{requester_class.year} - {requester_class.department} - {requester_class.section}",
+            "requester_slot": f"{requester_entry.day_of_week} Period {requester_entry.period_no}",
+            "requester_course": requester_course.course_name if requester_course else None,
+            "target_class": f"{target_class.year} - {target_class.department} - {target_class.section}",
+            "target_slot": f"{target_entry.day_of_week} Period {target_entry.period_no}",
+            "target_course": target_course.course_name if target_course else None,
+            "rejection_reason": r.rejection_reason,
+        })
+    return jsonify(result)
+
+def cleanup_expired_statuses():
+    with app.app_context():
+        cutoff = datetime.now() - timedelta(days=7)
+        cutoff_date_str = cutoff.strftime("%Y-%m-%d")
+
+        # 1. Revert any leave (open, pending_requests, or confirmed) whose
+        # leave_date is more than a week old — restores the original
+        # faculty's period and clears any substitute assignment.
+        old_leaves = Leave.query.filter(Leave.leave_date < cutoff_date_str).all()
+        reverted_leaves = 0
+        for leave in old_leaves:
+            entry = TimetableEntry.query.get(leave.entry_id)
+            class_obj = Class.query.get(entry.class_id) if entry else None
+
+            if leave.status == "confirmed" and leave.confirmed_faculty_id and entry and class_obj:
+                substitute = Faculty.query.get(leave.confirmed_faculty_id)
+                if substitute:
+                    create_notification(
+                        "faculty", substitute.faculty_id,
+                        f"You're no longer covering {class_obj.year} - {class_obj.department} - "
+                        f"{class_obj.section}, {entry.day_of_week} Period {entry.period_no} — "
+                        f"that week has passed and the schedule reset to normal.",
+                        "cover_request"
+                    )
+
+            if entry:
+                entry.status_color = "normal"
+
+            CoverRequest.query.filter_by(leave_id=leave.leave_id).delete()
+            db.session.delete(leave)
+            reverted_leaves += 1
+
+        # 2. Revert any accepted swap resolved more than a week ago — swaps
+        # are self-inverse, so exchanging course_id back undoes it exactly.
+        old_swaps = SwapRequest.query.filter(
+            SwapRequest.status == "accepted",
+            SwapRequest.resolved_at < cutoff
+        ).all()
+        reverted_swaps = 0
+        for swap in old_swaps:
+            requester_entry = TimetableEntry.query.get(swap.requester_entry_id)
+            target_entry = TimetableEntry.query.get(swap.target_entry_id)
+            if requester_entry and target_entry:
+                requester_entry.course_id, target_entry.course_id = (
+                    target_entry.course_id,
+                    requester_entry.course_id,
+                )
+                requester_entry.status_color = "normal"
+                target_entry.status_color = "normal"
+            db.session.delete(swap)
+            reverted_swaps += 1
+
+        db.session.commit()
+        print(
+            f"[CLEANUP] Reverted {reverted_leaves} leave(s) and "
+            f"{reverted_swaps} swap(s) older than 7 days."
+        )
 
 @app.route("/leave_by_entry/<int:entry_id>", methods=["GET"])
 def get_leave_by_entry(entry_id):
@@ -1454,6 +1917,12 @@ def get_leave_by_entry(entry_id):
     if not leave:
         return jsonify({"error": "No active leave found for this entry"}), 404
     return jsonify({"leave_id": leave.leave_id})
-    
+
+if os.environ.get('WERKZEUG_RUN_MAIN') == 'true' or not app.debug:
+    scheduler = BackgroundScheduler()
+    scheduler.add_job(check_pending_leaves, 'interval', minutes=1)
+    scheduler.add_job(cleanup_expired_statuses, 'interval', hours=6)
+    scheduler.start()
+
 if __name__ == "__main__":
     app.run(debug=True)

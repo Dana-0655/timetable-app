@@ -22,6 +22,11 @@ class _FacultyPendingLeavesScreenState
   List<dynamic> _myOpenEntries = [];
   bool _isLoading = true;
 
+  static const TextStyle classHighlightStyle = TextStyle(
+    fontWeight: FontWeight.bold,
+    color: Color(0xFF1A237E),
+  );
+
   @override
   void initState() {
     super.initState();
@@ -57,7 +62,8 @@ class _FacultyPendingLeavesScreenState
               final leaveData = jsonDecode(leaveResponse.body);
               // Only show leaves belonging to THIS faculty
               entry['leave_id'] = leaveData['leave_id'];
-              entry['class_name'] = '${cls['year']} - ${cls['section']}';
+              entry['class_name'] =
+                  '${cls['year']} - ${cls['department']} - ${cls['section']}';
               myOpen.add(entry);
             }
           }
@@ -158,16 +164,29 @@ class _FacultyPendingLeavesScreenState
               itemCount: _myOpenEntries.length,
               itemBuilder: (context, index) {
                 final entry = _myOpenEntries[index];
-                final slotInfo =
-                    '${entry['class_name']} - ${entry['day_of_week']} Period ${entry['period_no']}';
+                final periodInfo =
+                    '${entry['day_of_week']} Period ${entry['period_no']}';
                 return Card(
                   color: Colors.orange.shade50,
                   child: ListTile(
-                    title: Text(entry['course_name'] ?? ''),
-                    subtitle: Text(slotInfo),
+                    title: RichText(
+                      text: TextSpan(
+                        style: DefaultTextStyle.of(context).style,
+                        children: [
+                          TextSpan(
+                            text: entry['class_name'],
+                            style: classHighlightStyle,
+                          ),
+                          TextSpan(text: ' - ${entry['course_name'] ?? ''}'),
+                        ],
+                      ),
+                    ),
+                    subtitle: Text(periodInfo),
                     trailing: ElevatedButton(
-                      onPressed: () =>
-                          _viewAndConfirmRequests(entry['leave_id'], slotInfo),
+                      onPressed: () => _viewAndConfirmRequests(
+                        entry['leave_id'],
+                        '${entry['class_name']} - $periodInfo',
+                      ),
                       child: const Text('View Volunteers'),
                     ),
                   ),

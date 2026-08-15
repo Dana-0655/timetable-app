@@ -64,10 +64,6 @@ class _NotificationBellState extends State<NotificationBell> {
         endpoint = '/resolve_course_faculty_request';
         body = {'cf_request_id': notif['reference_id'], 'decision': decision};
         break;
-      case 'swap_request':
-        endpoint = '/resolve_swap_request';
-        body = {'swap_id': notif['reference_id'], 'decision': decision};
-        break;
       default:
         return;
     }
@@ -229,9 +225,7 @@ class _NotificationBellState extends State<NotificationBell> {
         return Icons.menu_book;
       case 'cover_confirmed':
         return Icons.event_available;
-      case 'swap_request':
-      case 'swap_response':
-        return Icons.swap_horiz;
+
       default:
         return Icons.notifications;
     }
@@ -240,11 +234,7 @@ class _NotificationBellState extends State<NotificationBell> {
   Widget _buildNotificationTile(BuildContext sheetContext, Map notif) {
     final isRead = notif['is_read'] == true;
     final isActionable =
-        [
-          'cc_invite',
-          'course_invite',
-          'swap_request',
-        ].contains(notif['notif_type']) &&
+        ['cc_invite', 'course_invite'].contains(notif['notif_type']) &&
         notif['reference_id'] != null &&
         !isRead;
 

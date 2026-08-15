@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'dart:async';
+import 'date_helpers.dart';
 
 class StudentTimetableScreen extends StatefulWidget {
   final int classId;
@@ -22,6 +23,8 @@ class _StudentTimetableScreenState extends State<StudentTimetableScreen> {
   bool _isLoading = true;
   String? _errorMessage;
   Timer? _refreshTimer;
+  final ScrollController _scrollController = ScrollController();
+  bool _hasScrolledToToday = false;
 
   @override
   void initState() {
@@ -37,7 +40,23 @@ class _StudentTimetableScreenState extends State<StudentTimetableScreen> {
   @override
   void dispose() {
     _refreshTimer?.cancel();
+    _scrollController.dispose();
     super.dispose();
+  }
+
+  void _scrollToToday() {
+    if (_hasScrolledToToday || _entries.isEmpty) return;
+    final index = _entries.indexWhere(
+      (e) => DateHelpers.isToday(e['day_of_week']),
+    );
+    if (index != -1 && _scrollController.hasClients) {
+      _scrollController.animateTo(
+        index * 88.0,
+        duration: const Duration(milliseconds: 400),
+        curve: Curves.easeInOut,
+      );
+      _hasScrolledToToday = true;
+    }
   }
 
   Future<void> _fetchUpdates() async {
@@ -135,6 +154,7 @@ class _StudentTimetableScreenState extends State<StudentTimetableScreen> {
           _entries = jsonDecode(response.body);
           _isLoading = false;
         });
+        WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToToday());
       } else {
         setState(() {
           _errorMessage = 'Could not load timetable.';
@@ -258,15 +278,45 @@ class _StudentTimetableScreenState extends State<StudentTimetableScreen> {
               ),
             )
           : ListView.builder(
+              controller: _scrollController,
               padding: const EdgeInsets.all(16),
               itemCount: _entries.length,
               itemBuilder: (context, index) {
                 final entry = _entries[index];
+                final dayCode = entry['day_of_week'];
+                final dateLabel = DateHelpers.labelForDayCode(dayCode);
+                final isToday = DateHelpers.isToday(dayCode);
+
                 return Card(
                   color: _getColorForStatus(entry['status_color']),
                   child: ListTile(
-                    title: Text(
-                      '${entry['day_of_week']} - Period ${entry['period_no']}',
+                    title: Row(
+                      children: [
+                        Text(
+                          '$dayCode ($dateLabel) - Period ${entry['period_no']}',
+                        ),
+                        if (isToday) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 1,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.blue,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: const Text(
+                              'Today',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                     subtitle: Text(
                       '${entry['course_name'] ?? 'Unassigned'} • ${entry['faculty_name'] ?? 'No faculty'}',

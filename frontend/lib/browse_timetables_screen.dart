@@ -21,6 +21,11 @@ class _BrowseTimetablesScreenState extends State<BrowseTimetablesScreen> {
   List<dynamic> _classes = [];
   bool _isLoading = true;
 
+  static const TextStyle classHighlightStyle = TextStyle(
+    fontWeight: FontWeight.bold,
+    color: Color(0xFF1A237E),
+  );
+
   @override
   void initState() {
     super.initState();
@@ -29,7 +34,11 @@ class _BrowseTimetablesScreenState extends State<BrowseTimetablesScreen> {
 
   Future<void> _fetchClasses() async {
     setState(() => _isLoading = true);
-    final url = Uri.parse('http://127.0.0.1:5000/classes/${widget.collegeId}');
+    // Only classes where this faculty is CC or teaches a course - not
+    // every class in the college.
+    final url = Uri.parse(
+      'http://127.0.0.1:5000/faculty_related_classes/${widget.facultyId}',
+    );
     try {
       final response = await http.get(url);
       if (response.statusCode == 200) {
@@ -50,7 +59,16 @@ class _BrowseTimetablesScreenState extends State<BrowseTimetablesScreen> {
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _classes.isEmpty
-          ? const Center(child: Text('No classes yet.'))
+          ? const Center(
+              child: Padding(
+                padding: EdgeInsets.all(24),
+                child: Text(
+                  'You are not linked to any class yet — become a CC or get '
+                  'assigned to teach a course to see it here.',
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            )
           : ListView.builder(
               padding: const EdgeInsets.all(16),
               itemCount: _classes.length,
@@ -58,8 +76,10 @@ class _BrowseTimetablesScreenState extends State<BrowseTimetablesScreen> {
                 final cls = _classes[index];
                 return Card(
                   child: ListTile(
-                    title: Text('${cls['year']} - Section ${cls['section']}'),
-                    subtitle: Text(cls['department']),
+                    title: Text(
+                      '${cls['year']} - ${cls['department']} - ${cls['section']}',
+                      style: classHighlightStyle,
+                    ),
                     trailing: const Icon(Icons.arrow_forward_ios, size: 16),
                     onTap: () {
                       Navigator.push(

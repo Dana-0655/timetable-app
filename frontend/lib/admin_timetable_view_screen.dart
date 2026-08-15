@@ -3,6 +3,7 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'fill_slot_screen.dart';
 import 'schedule_builder_screen.dart';
+import 'date_helpers.dart';
 
 class AdminTimetableViewScreen extends StatefulWidget {
   final int classId;
@@ -144,14 +145,36 @@ class _AdminTimetableViewScreenState extends State<AdminTimetableViewScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final todayIndex = _days.indexWhere((d) => DateHelpers.isToday(d));
+
     return DefaultTabController(
       length: _days.length,
+      initialIndex: todayIndex >= 0 ? todayIndex : 0,
       child: Scaffold(
         appBar: AppBar(
           title: Text('${widget.className} - Timetable'),
           bottom: TabBar(
             isScrollable: true,
-            tabs: _days.map((d) => Tab(text: d)).toList(),
+            tabs: _days.map((d) {
+              final isToday = DateHelpers.isToday(d);
+              return Tab(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      d,
+                      style: TextStyle(
+                        fontWeight: isToday ? FontWeight.bold : null,
+                      ),
+                    ),
+                    Text(
+                      DateHelpers.labelForDayCode(d),
+                      style: const TextStyle(fontSize: 10),
+                    ),
+                  ],
+                ),
+              );
+            }).toList(),
           ),
         ),
         body: _isLoading

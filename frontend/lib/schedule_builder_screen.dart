@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'date_helpers.dart';
 
 class ScheduleBuilderScreen extends StatefulWidget {
   final int classId;
@@ -77,7 +78,21 @@ class _ScheduleBuilderScreenState extends State<ScheduleBuilderScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('Make Schedule - ${widget.dayOfWeek}')),
+      appBar: AppBar(
+        title: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('Make Schedule - ${widget.dayOfWeek}'),
+            Text(
+              DateHelpers.labelForDayCode(widget.dayOfWeek),
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.normal,
+              ),
+            ),
+          ],
+        ),
+      ),
       body: _showOrderStep ? _buildOrderStep() : _buildCountStep(),
     );
   }
