@@ -22,11 +22,6 @@ class _FacultyPendingLeavesScreenState
   List<dynamic> _myOpenEntries = [];
   bool _isLoading = true;
 
-  static const TextStyle classHighlightStyle = TextStyle(
-    fontWeight: FontWeight.bold,
-    color: Color(0xFF1A237E),
-  );
-
   @override
   void initState() {
     super.initState();
@@ -151,6 +146,94 @@ class _FacultyPendingLeavesScreenState
     }
   }
 
+  /// Lets the absent faculty directly pick and assign a specific colleague
+  /// to cover this period, instead of waiting for volunteers.
+  Future<void> _showInviteSubstituteDialog(int leaveId, String slotInfo) async {
+    final url = Uri.parse(
+      'http://127.0.0.1:5000/faculty_list/${widget.collegeId}',
+    );
+    try {
+      final response = await http.get(url);
+      final List<dynamic> rawFacultyList = jsonDecode(response.body);
+      // Don't let the absent faculty "invite" themselves.
+      final facultyList = rawFacultyList
+          .where((f) => f['faculty_id'] != widget.facultyId)
+          .toList();
+
+      if (!mounted) return;
+
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text('Invite Someone - $slotInfo'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: facultyList.isEmpty
+                ? const Text('No other faculty available.')
+                : ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: facultyList.length,
+                    itemBuilder: (context, index) {
+                      final f = facultyList[index];
+                      return ListTile(
+                        title: Text(f['name']),
+                        subtitle: Text(f['email']),
+                        trailing: ElevatedButton(
+                          onPressed: () async {
+                            Navigator.pop(context);
+                            await _inviteSubstitute(leaveId, f['faculty_id']);
+                          },
+                          child: const Text('Invite'),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+          ],
+        ),
+      );
+    } catch (e) {
+      // Silently fail for now
+    }
+  }
+
+  Future<void> _inviteSubstitute(int leaveId, int facultyId) async {
+    final url = Uri.parse('http://127.0.0.1:5000/invite_substitute');
+    try {
+      final response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'leave_id': leaveId, 'faculty_id': facultyId}),
+      );
+      final data = jsonDecode(response.body);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              response.statusCode == 200
+                  ? (data['message'] ?? 'Substitute assigned!')
+                  : (data['error'] ?? 'Could not assign substitute.'),
+            ),
+          ),
+        );
+      }
+      if (response.statusCode == 200) {
+        _fetchMyOpenLeaves();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not connect to server.')),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -164,30 +247,31 @@ class _FacultyPendingLeavesScreenState
               itemCount: _myOpenEntries.length,
               itemBuilder: (context, index) {
                 final entry = _myOpenEntries[index];
-                final periodInfo =
-                    '${entry['day_of_week']} Period ${entry['period_no']}';
+                final slotInfo =
+                    '${entry['class_name']} - ${entry['day_of_week']} Period ${entry['period_no']}';
                 return Card(
                   color: Colors.orange.shade50,
                   child: ListTile(
-                    title: RichText(
-                      text: TextSpan(
-                        style: DefaultTextStyle.of(context).style,
-                        children: [
-                          TextSpan(
-                            text: entry['class_name'],
-                            style: classHighlightStyle,
+                    title: Text(entry['course_name'] ?? ''),
+                    subtitle: Text(slotInfo),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        TextButton(
+                          onPressed: () => _showInviteSubstituteDialog(
+                            entry['leave_id'],
+                            slotInfo,
                           ),
-                          TextSpan(text: ' - ${entry['course_name'] ?? ''}'),
-                        ],
-                      ),
-                    ),
-                    subtitle: Text(periodInfo),
-                    trailing: ElevatedButton(
-                      onPressed: () => _viewAndConfirmRequests(
-                        entry['leave_id'],
-                        '${entry['class_name']} - $periodInfo',
-                      ),
-                      child: const Text('View Volunteers'),
+                          child: const Text('Invite'),
+                        ),
+                        ElevatedButton(
+                          onPressed: () => _viewAndConfirmRequests(
+                            entry['leave_id'],
+                            slotInfo,
+                          ),
+                          child: const Text('View Volunteers'),
+                        ),
+                      ],
                     ),
                   ),
                 );

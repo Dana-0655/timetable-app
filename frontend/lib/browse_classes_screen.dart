@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'faculty_class_courses_screen.dart';
+import 'class_info_dialog.dart';
 
 class BrowseClassesScreen extends StatefulWidget {
   final int facultyId;
@@ -90,24 +91,43 @@ class _BrowseClassesScreenState extends State<BrowseClassesScreen> {
               itemBuilder: (context, index) {
                 final cls = _classes[index];
                 final hasCC = cls['cc_faculty_id'] != null;
+                final isMyCC = cls['cc_faculty_id'] == widget.facultyId;
+                final className = '${cls['year']} - ${cls['section']}';
                 return Card(
                   child: ListTile(
                     title: Text('${cls['year']} - Section ${cls['section']}'),
                     subtitle: Text(cls['department']),
-                    trailing: hasCC
-                        ? const Chip(label: Text('CC Assigned'))
-                        : _isAlreadyCCSomewhere
-                        ? null // hide Request CC if already CC elsewhere
-                        : ElevatedButton(
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.info_outline),
+                          tooltip: 'Class Details',
+                          onPressed: () => showClassInfoDialog(
+                            context,
+                            classId: cls['class_id'],
+                            className: className,
+                            // Only editable if THIS faculty is that
+                            // specific class's CC — everyone else,
+                            // including other CCs, sees it read-only.
+                            canEdit: isMyCC,
+                          ),
+                        ),
+                        if (hasCC)
+                          const Chip(label: Text('CC Assigned'))
+                        else if (!_isAlreadyCCSomewhere)
+                          ElevatedButton(
                             onPressed: () => _sendCCRequest(cls['class_id']),
                             child: const Text('Request CC'),
                           ),
+                      ],
+                    ),
                     onTap: () => Navigator.push(
                       context,
                       MaterialPageRoute(
                         builder: (context) => FacultyClassCoursesScreen(
                           classId: cls['class_id'],
-                          className: '${cls['year']} - ${cls['section']}',
+                          className: className,
                           facultyId: widget.facultyId,
                         ),
                       ),

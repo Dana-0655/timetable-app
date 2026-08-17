@@ -15,6 +15,7 @@ import 'faculty_open_slots_screen.dart';
 import 'faculty_pending_leaves_screen.dart';
 import 'faculty_swap_responses_screen.dart';
 import 'browse_timetables_screen.dart';
+import 'holiday_management_screen.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
   final int adminId;
@@ -525,7 +526,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         if (ctxData['has_faculty_record'] == true) {
           final fid = ctxData['faculty_id'] as int;
           final classesUrl = Uri.parse(
-            'http://127.0.0.1:5000/faculty_related_classes/$fid',
+            'http://127.0.0.1:5000/faculty_related_classes_all/$fid',
           );
           final classesResponse = await http.get(classesUrl);
           if (classesResponse.statusCode == 200) {
@@ -817,6 +818,17 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             icon: const Icon(Icons.calendar_month),
             tooltip: 'Manage Semesters',
             onPressed: _openSemesterManagement,
+          ),
+          IconButton(
+            icon: const Icon(Icons.beach_access),
+            tooltip: 'Manage Holidays',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) =>
+                    HolidayManagementScreen(collegeId: widget.collegeId),
+              ),
+            ),
           ),
           IconButton(
             icon: const Icon(Icons.logout),

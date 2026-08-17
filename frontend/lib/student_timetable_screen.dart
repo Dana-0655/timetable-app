@@ -3,10 +3,12 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'dart:async';
 import 'date_helpers.dart';
+import 'class_info_dialog.dart';
 
 class StudentTimetableScreen extends StatefulWidget {
   final int classId;
-  final String className;
+  final String className; // e.g. "2nd - AIML - A" (year - department - section)
+
   const StudentTimetableScreen({
     super.key,
     required this.classId,
@@ -17,18 +19,46 @@ class StudentTimetableScreen extends StatefulWidget {
   State<StudentTimetableScreen> createState() => _StudentTimetableScreenState();
 }
 
-class _StudentTimetableScreenState extends State<StudentTimetableScreen> {
+class _StudentTimetableScreenState extends State<StudentTimetableScreen>
+    with SingleTickerProviderStateMixin {
   List<dynamic> _entries = [];
   List<dynamic> _updates = [];
   bool _isLoading = true;
   String? _errorMessage;
   Timer? _refreshTimer;
-  final ScrollController _scrollController = ScrollController();
-  bool _hasScrolledToToday = false;
+
+  final List<String> _days = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
+  late final TabController _tabController;
+
+  // Same fixed palette as the faculty/admin timetable grid, so a swapped
+  // pair looks identical no matter which role is viewing it.
+  static const List<Color> _swapPalette = [
+    Color(0xFFB3E5FC), // light blue
+    Color(0xFFC8E6C9), // light green
+    Color(0xFFFFF9C4), // light yellow
+    Color(0xFFF8BBD0), // light pink
+    Color(0xFFD1C4E9), // light purple
+    Color(0xFFFFCCBC), // light orange
+    Color(0xFFB2DFDB), // teal
+    Color(0xFFDCEDC8), // lime
+  ];
+
+  Color _colorForSwapId(int swapId) {
+    return _swapPalette[swapId % _swapPalette.length];
+  }
 
   @override
   void initState() {
     super.initState();
+    final todayCode = DateHelpers.weekDayCodes[DateTime.now().weekday - 1];
+    var initialIndex = _days.indexOf(todayCode);
+    if (initialIndex == -1) initialIndex = 0;
+    _tabController = TabController(
+      length: _days.length,
+      initialIndex: initialIndex,
+      vsync: this,
+    );
+
     _fetchTimetable();
     _fetchUpdates();
     _refreshTimer = Timer.periodic(const Duration(seconds: 15), (timer) {
@@ -40,23 +70,8 @@ class _StudentTimetableScreenState extends State<StudentTimetableScreen> {
   @override
   void dispose() {
     _refreshTimer?.cancel();
-    _scrollController.dispose();
+    _tabController.dispose();
     super.dispose();
-  }
-
-  void _scrollToToday() {
-    if (_hasScrolledToToday || _entries.isEmpty) return;
-    final index = _entries.indexWhere(
-      (e) => DateHelpers.isToday(e['day_of_week']),
-    );
-    if (index != -1 && _scrollController.hasClients) {
-      _scrollController.animateTo(
-        index * 88.0,
-        duration: const Duration(milliseconds: 400),
-        curve: Curves.easeInOut,
-      );
-      _hasScrolledToToday = true;
-    }
   }
 
   Future<void> _fetchUpdates() async {
@@ -154,7 +169,6 @@ class _StudentTimetableScreenState extends State<StudentTimetableScreen> {
           _entries = jsonDecode(response.body);
           _isLoading = false;
         });
-        WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToToday());
       } else {
         setState(() {
           _errorMessage = 'Could not load timetable.';
@@ -216,25 +230,192 @@ class _StudentTimetableScreenState extends State<StudentTimetableScreen> {
     }
   }
 
-  Color _getColorForStatus(String status) {
-    switch (status) {
+  Color _colorForEntry(dynamic entry) {
+    switch (entry['status_color']) {
       case 'open_leave':
-        return Colors.orange.shade100;
+        return Colors.red.shade100;
       case 'confirmed_cover':
         return Colors.green.shade100;
       case 'swapped':
-        return Colors.blue.shade100;
+        return entry['swap_id'] != null
+            ? _colorForSwapId(entry['swap_id'] as int)
+            : Colors.blue.shade100;
       default:
         return Colors.white;
     }
+  }
+
+  String _timeRange(dynamic entry) {
+    final start = entry['start_time'];
+    final end = entry['end_time'];
+    if (start == null || end == null) return '';
+    return '$start - $end';
+  }
+
+  /// Period card layout:
+  /// [small] start–end time · Period N
+  /// [bold, dark, larger] Course name
+  /// [normal] Faculty name
+  Widget _buildPeriodCard(dynamic entry) {
+    final isSwapped = entry['status_color'] == 'swapped';
+    final timeRange = _timeRange(entry);
+    final periodLabel = 'Period ${entry['period_no']}';
+
+    return Card(
+      color: _colorForEntry(entry),
+      child: Stack(
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        timeRange.isEmpty
+                            ? periodLabel
+                            : '$timeRange  •  $periodLabel',
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: Colors.black54,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        entry['course_name'] ?? 'Unassigned',
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF212121),
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        entry['faculty_name'] ?? 'No faculty',
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: Colors.black87,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (entry['course_id'] != null)
+                  IconButton(
+                    icon: const Icon(Icons.info_outline),
+                    onPressed: () => _showCourseInfo(entry['course_id']),
+                  ),
+              ],
+            ),
+          ),
+          if (isSwapped)
+            Positioned(
+              top: 6,
+              right: 6,
+              child: Tooltip(
+                message: 'Swapped period',
+                child: Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.shade700,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.swap_horiz,
+                    size: 14,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// Break card layout — deliberately minimal, nothing period-related:
+  /// [small] start–end time
+  /// [bold, dark] Break name
+  Widget _buildBreakCard(dynamic entry) {
+    final timeRange = _timeRange(entry);
+    return Card(
+      color: Colors.grey.shade100,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (timeRange.isNotEmpty)
+              Text(
+                timeRange,
+                style: const TextStyle(fontSize: 11, color: Colors.black54),
+              ),
+            const SizedBox(height: 4),
+            Text(
+              entry['label'] ?? 'Break',
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF212121),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.className),
+        title: Text(
+          widget.className,
+          style: const TextStyle(fontWeight: FontWeight.bold),
+        ),
+        centerTitle: true,
+        bottom: TabBar(
+          controller: _tabController,
+          isScrollable: true,
+          tabs: _days.map((d) {
+            final isToday = DateHelpers.isToday(d);
+            return Tab(
+              height: 52,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    d,
+                    style: TextStyle(
+                      fontWeight: isToday ? FontWeight.bold : FontWeight.normal,
+                    ),
+                  ),
+                  Text(
+                    DateHelpers.labelForDayCode(d),
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: isToday ? Colors.blue : Colors.black54,
+                      fontWeight: isToday ? FontWeight.bold : FontWeight.normal,
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }).toList(),
+        ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.info_outline),
+            tooltip: 'Class Details',
+            onPressed: () => showClassInfoDialog(
+              context,
+              classId: widget.classId,
+              className: widget.className,
+              canEdit: false, // students are always read-only
+            ),
+          ),
           Stack(
             children: [
               IconButton(
@@ -271,66 +452,75 @@ class _StudentTimetableScreenState extends State<StudentTimetableScreen> {
           ? const Center(child: CircularProgressIndicator())
           : _errorMessage != null
           ? Center(child: Text(_errorMessage!))
-          : _entries.isEmpty
-          ? const Center(
-              child: Text(
-                'Timetable not available yet, please check back later.',
-              ),
-            )
-          : ListView.builder(
-              controller: _scrollController,
-              padding: const EdgeInsets.all(16),
-              itemCount: _entries.length,
-              itemBuilder: (context, index) {
-                final entry = _entries[index];
-                final dayCode = entry['day_of_week'];
-                final dateLabel = DateHelpers.labelForDayCode(dayCode);
-                final isToday = DateHelpers.isToday(dayCode);
+          : TabBarView(
+              controller: _tabController,
+              children: _days.map((day) {
+                final dayEntries =
+                    _entries.where((e) => e['day_of_week'] == day).toList()
+                      ..sort(
+                        (a, b) => a['period_no'].compareTo(b['period_no']),
+                      );
 
-                return Card(
-                  color: _getColorForStatus(entry['status_color']),
-                  child: ListTile(
-                    title: Row(
-                      children: [
-                        Text(
-                          '$dayCode ($dateLabel) - Period ${entry['period_no']}',
-                        ),
-                        if (isToday) ...[
-                          const SizedBox(width: 6),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 6,
-                              vertical: 1,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.blue,
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: const Text(
-                              'Today',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 10,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
+                if (dayEntries.isEmpty) {
+                  final isSunday = day == 'SUN';
+                  return Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            isSunday ? Icons.weekend : Icons.event_busy,
+                            size: 48,
+                            color: Colors.grey,
                           ),
+                          const SizedBox(height: 12),
+                          Text(
+                            isSunday
+                                ? 'Sunday - Holiday'
+                                : 'Timetable not available yet.',
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                          if (isSunday) ...[
+                            const SizedBox(height: 6),
+                            const Text(
+                              'No classes scheduled today.',
+                              style: TextStyle(color: Colors.black54),
+                              textAlign: TextAlign.center,
+                            ),
+                          ] else ...[
+                            const SizedBox(height: 6),
+                            const Text(
+                              'Please check back later.',
+                              style: TextStyle(color: Colors.black54),
+                              textAlign: TextAlign.center,
+                            ),
+                          ],
                         ],
-                      ],
+                      ),
                     ),
-                    subtitle: Text(
-                      '${entry['course_name'] ?? 'Unassigned'} • ${entry['faculty_name'] ?? 'No faculty'}',
-                    ),
-                    trailing: entry['course_id'] != null
-                        ? IconButton(
-                            icon: const Icon(Icons.info_outline),
-                            onPressed: () =>
-                                _showCourseInfo(entry['course_id']),
-                          )
-                        : null,
-                  ),
+                  );
+                }
+
+                return ListView.builder(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: dayEntries.length,
+                  itemBuilder: (context, index) {
+                    final entry = dayEntries[index];
+                    final isBreak = entry['entry_type'] == 'break';
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: isBreak
+                          ? _buildBreakCard(entry)
+                          : _buildPeriodCard(entry),
+                    );
+                  },
                 );
-              },
+              }).toList(),
             ),
     );
   }

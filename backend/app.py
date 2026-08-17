@@ -10,7 +10,9 @@ from datetime import datetime, timedelta
 app = Flask(__name__)
 CORS(app)
 
-app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://root:Dhana%402006@localhost/timetable_db'
+AIVEN_PASSWORD = os.getenv("AIVEN_PASSWORD")
+app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://avnadmin:${AIVEN_PASSWORD}@timetable-db-dhana1029384756-00ab.k.aivencloud.com:22672/timetable_db'
+app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {"connect_args": {"ssl": {"ca": "ca.pem"} }}
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
@@ -39,7 +41,6 @@ class Faculty(db.Model):
     password_hash = db.Column(db.String(255), nullable=False)
     subject_expertise = db.Column(db.String(255), nullable=True)
     created_at = db.Column(db.DateTime, server_default=db.func.now())
-
 class Class(db.Model):
     class_id = db.Column(db.Integer, primary_key=True)
     college_id = db.Column(db.Integer, db.ForeignKey('college.college_id'), nullable=False)
@@ -48,6 +49,7 @@ class Class(db.Model):
     section = db.Column(db.String(10), nullable=False)
     department = db.Column(db.String(100), nullable=False)
     cc_faculty_id = db.Column(db.Integer, db.ForeignKey('faculty.faculty_id'), nullable=True)
+    room_number = db.Column(db.String(50), nullable=True)
     created_at = db.Column(db.DateTime, server_default=db.func.now())
 
 class CCRequest(db.Model):
@@ -108,6 +110,17 @@ class Leave(db.Model):
     confirmed_faculty_id = db.Column(db.Integer, db.ForeignKey('faculty.faculty_id'), nullable=True)
     confirmed_by_role = db.Column(db.String(20), nullable=True)  # 'faculty' or 'cc'
     created_at = db.Column(db.DateTime, server_default=db.func.now())
+
+class Holiday(db.Model):
+    holiday_id = db.Column(db.Integer, primary_key=True)
+    college_id = db.Column(db.Integer, db.ForeignKey('college.college_id'), nullable=False)
+    holiday_date = db.Column(db.String(20), nullable=False)  # "YYYY-MM-DD"
+    reason = db.Column(db.String(150), nullable=True)
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+
+    __table_args__ = (
+        db.UniqueConstraint('college_id', 'holiday_date', name='unique_holiday_per_date'),
+    )
 
 class CoverRequest(db.Model):
     cover_req_id = db.Column(db.Integer, primary_key=True)
@@ -176,9 +189,7 @@ def check_pending_leaves():
 
             entry = TimetableEntry.query.get(leave.entry_id)
             config = TimetableConfig.query.filter_by(class_id=entry.class_id).first()
-
             if not config:
-                print(f"[DEBUG] No config found for class_id {entry.class_id}")
                 continue
 
             leave_date_obj = datetime.strptime(leave.leave_date, "%Y-%m-%d")
@@ -547,11 +558,21 @@ def get_faculty_cc_invites(faculty_id):
 
 @app.route("/faculty_related_classes/<int:faculty_id>", methods=["GET"])
 def get_faculty_related_classes(faculty_id):
-    cc_classes = Class.query.filter_by(cc_faculty_id=faculty_id).all()
+    faculty = Faculty.query.get(faculty_id)
+    if not faculty:
+        return jsonify([])
+
+    active_semester = Semester.query.filter_by(college_id=faculty.college_id, is_active=True).first()
+    semester_id = active_semester.semester_id if active_semester else None
+
+    cc_classes = Class.query.filter_by(cc_faculty_id=faculty_id, semester_id=semester_id).all()
 
     course_class_ids = db.session.query(Course.class_id).filter_by(faculty_id=faculty_id).distinct().all()
     course_class_ids = [c[0] for c in course_class_ids]
-    course_classes = Class.query.filter(Class.class_id.in_(course_class_ids)).all() if course_class_ids else []
+    course_classes = Class.query.filter(
+        Class.class_id.in_(course_class_ids),
+        Class.semester_id == semester_id
+    ).all() if course_class_ids else []
 
     merged = {c.class_id: c for c in cc_classes + course_classes}.values()
 
@@ -756,7 +777,7 @@ def add_timetable_entry():
     db.session.add(new_entry)
     db.session.commit()
     return jsonify({"message": "Timetable entry added!", "entry_id": new_entry.entry_id})
-    
+
 @app.route("/timetable/<int:class_id>", methods=["GET"])
 def get_timetable(class_id):
     entries = TimetableEntry.query.filter_by(class_id=class_id).all()
@@ -774,13 +795,26 @@ def get_timetable(class_id):
                 faculty_name = faculty.name
                 faculty_id_result = faculty.faculty_id
 
-        # Check if this slot has a CONFIRMED leave/substitution
         if course_name:
             confirmed_leave = Leave.query.filter_by(entry_id=e.entry_id, status="confirmed").first()
             if confirmed_leave and confirmed_leave.confirmed_faculty_id:
                 substitute = Faculty.query.get(confirmed_leave.confirmed_faculty_id)
                 faculty_name = substitute.name
                 faculty_id_result = substitute.faculty_id
+
+        # If this slot was swapped, find the accepted swap it belongs to so
+        # the frontend can color-match both halves of the same swap.
+        swap_id_result = None
+        if e.status_color == "swapped":
+            swap = SwapRequest.query.filter(
+                db.or_(
+                    SwapRequest.requester_entry_id == e.entry_id,
+                    SwapRequest.target_entry_id == e.entry_id
+                ),
+                SwapRequest.status == "accepted"
+            ).order_by(SwapRequest.resolved_at.desc()).first()
+            if swap:
+                swap_id_result = swap.swap_id
 
         result.append({
             "entry_id": e.entry_id,
@@ -794,7 +828,8 @@ def get_timetable(class_id):
             "course_name": course_name,
             "faculty_name": faculty_name,
             "faculty_id": faculty_id_result,
-            "status_color": e.status_color
+            "status_color": e.status_color,
+            "swap_id": swap_id_result
         })
 
     return jsonify(result)
@@ -812,19 +847,52 @@ def verify_college_code(code):
 
 @app.route("/departments/<int:college_id>", methods=["GET"])
 def get_departments(college_id):
-    classes = Class.query.filter_by(college_id=college_id).all()
+    active_semester = Semester.query.filter_by(college_id=college_id, is_active=True).first()
+    if active_semester:
+        classes = Class.query.filter_by(college_id=college_id, semester_id=active_semester.semester_id).all()
+    else:
+        classes = Class.query.filter_by(college_id=college_id, semester_id=None).all()
     departments = list(set([c.department for c in classes]))
     return jsonify(departments)
 
 @app.route("/classes_by_department/<int:college_id>/<string:department>", methods=["GET"])
 def get_classes_by_department(college_id, department):
-    classes = Class.query.filter_by(college_id=college_id, department=department).all()
+    active_semester = Semester.query.filter_by(college_id=college_id, is_active=True).first()
+    if active_semester:
+        classes = Class.query.filter_by(
+            college_id=college_id, department=department, semester_id=active_semester.semester_id
+        ).all()
+    else:
+        classes = Class.query.filter_by(
+            college_id=college_id, department=department, semester_id=None
+        ).all()
     result = []
     for c in classes:
         result.append({
             "class_id": c.class_id,
             "year": c.year,
             "section": c.section
+        })
+    return jsonify(result)
+
+@app.route("/faculty_related_classes_all/<int:faculty_id>", methods=["GET"])
+def get_faculty_related_classes_all(faculty_id):
+    cc_classes = Class.query.filter_by(cc_faculty_id=faculty_id).all()
+
+    course_class_ids = db.session.query(Course.class_id).filter_by(faculty_id=faculty_id).distinct().all()
+    course_class_ids = [c[0] for c in course_class_ids]
+    course_classes = Class.query.filter(Class.class_id.in_(course_class_ids)).all() if course_class_ids else []
+
+    merged = {c.class_id: c for c in cc_classes + course_classes}.values()
+
+    result = []
+    for c in merged:
+        result.append({
+            "class_id": c.class_id,
+            "year": c.year,
+            "section": c.section,
+            "department": c.department,
+            "cc_faculty_id": c.cc_faculty_id
         })
     return jsonify(result)
 
@@ -1183,6 +1251,7 @@ def delete_semester():
     db.session.commit()
 
     return jsonify({"message": f"{semester.semester_name} deleted (soft delete)"})
+
 @app.route("/add_class", methods=["POST"])
 def add_class():
     data = request.get_json()
@@ -1196,7 +1265,6 @@ def add_class():
     if not active_semester:
         return jsonify({"error": "Please create a semester first before adding classes"}), 400
 
-    # Check for duplicate class WITHIN THE SAME SEMESTER ONLY
     existing = Class.query.filter_by(
         college_id=admin.college_id,
         semester_id=active_semester.semester_id,
@@ -1212,19 +1280,8 @@ def add_class():
         semester_id=active_semester.semester_id,
         year=data["year"].strip(),
         section=data["section"].strip(),
-        department=data["department"].strip()
-    )
-    db.session.add(new_class)
-    db.session.commit()
-
-    return jsonify({"message": "Class created successfully!", "class_id": new_class.class_id})
-
-    new_class = Class(
-        college_id=admin.college_id,
-        semester_id=active_semester.semester_id,
-        year=data["year"].strip(),
-        section=data["section"].strip(),
-        department=data["department"].strip()
+        department=data["department"].strip(),
+        room_number=data.get("room_number", "").strip() or None
     )
     db.session.add(new_class)
     db.session.commit()
@@ -1800,11 +1857,23 @@ def update_class():
     if not class_obj:
         return jsonify({"error": "Class not found"}), 404
 
+    admin_id = data.get("admin_id")
+    faculty_id = data.get("faculty_id")
+
+    if admin_id is not None:
+        admin = Admin.query.get(admin_id)
+        if not admin or admin.college_id != class_obj.college_id:
+            return jsonify({"error": "Not authorized to edit this class"}), 403
+    elif faculty_id is not None:
+        if class_obj.cc_faculty_id != faculty_id:
+            return jsonify({"error": "Only this class's CC can edit it"}), 403
+    else:
+        return jsonify({"error": "Not authorized to edit this class"}), 403
+
     new_year = data["year"].strip()
     new_section = data["section"].strip()
     new_department = data["department"].strip()
 
-    # Prevent creating a duplicate of another class in the same semester
     existing = Class.query.filter(
         Class.college_id == class_obj.college_id,
         Class.semester_id == class_obj.semester_id,
@@ -1917,6 +1986,140 @@ def get_leave_by_entry(entry_id):
     if not leave:
         return jsonify({"error": "No active leave found for this entry"}), 404
     return jsonify({"leave_id": leave.leave_id})
+
+@app.route("/invite_substitute", methods=["POST"])
+def invite_substitute():
+    data = request.get_json()
+    leave = Leave.query.get(data["leave_id"])
+    if not leave:
+        return jsonify({"error": "Leave not found"}), 404
+    if leave.status == "confirmed":
+        return jsonify({"error": "This leave slot is already confirmed"}), 400
+
+    faculty = Faculty.query.get(data["faculty_id"])
+    if not faculty:
+        return jsonify({"error": "Faculty not found"}), 404
+
+    entry = TimetableEntry.query.get(leave.entry_id)
+    class_obj = Class.query.get(entry.class_id)
+    course = Course.query.get(entry.course_id) if entry.course_id else None
+
+    # Directly assigning someone supersedes any pending volunteer offers —
+    # reject those and let those volunteers know the slot's been filled.
+    pending_covers = CoverRequest.query.filter_by(
+        leave_id=leave.leave_id, status="pending"
+    ).all()
+    for cr in pending_covers:
+        cr.status = "rejected"
+        if cr.requesting_faculty_id != faculty.faculty_id:
+            volunteer = Faculty.query.get(cr.requesting_faculty_id)
+            create_notification(
+                "faculty", volunteer.faculty_id,
+                f"The {class_obj.year} - {class_obj.department} - {class_obj.section}, "
+                f"{entry.day_of_week} Period {entry.period_no} slot was assigned "
+                f"to someone else.",
+                "cover_request"
+            )
+
+    leave.status = "confirmed"
+    leave.confirmed_faculty_id = faculty.faculty_id
+    leave.confirmed_by_role = "faculty"
+
+    entry.status_color = "confirmed_cover"
+
+    db.session.commit()
+
+    original_faculty = Faculty.query.get(leave.faculty_id)
+    create_notification(
+        "faculty", faculty.faculty_id,
+        f"{original_faculty.name} asked you to cover "
+        f"{class_obj.year} - {class_obj.department} - {class_obj.section}, "
+        f"{entry.day_of_week} Period {entry.period_no}"
+        f"{f' ({course.course_name})' if course else ''}.",
+        "cover_confirmed"
+    )
+
+    return jsonify({"message": f"{faculty.name} has been assigned to cover this period!"})
+
+@app.route("/class_info/<int:class_id>", methods=["GET"])
+def get_class_info(class_id):
+    class_obj = Class.query.get(class_id)
+    if not class_obj:
+        return jsonify({"error": "Class not found"}), 404
+
+    cc_name = None
+    if class_obj.cc_faculty_id:
+        cc = Faculty.query.get(class_obj.cc_faculty_id)
+        cc_name = cc.name if cc else None
+
+    return jsonify({
+        "class_id": class_obj.class_id,
+        "year": class_obj.year,
+        "section": class_obj.section,
+        "department": class_obj.department,
+        "room_number": class_obj.room_number,
+        "cc_name": cc_name  # always derived automatically — never manually typed
+    })
+
+
+@app.route("/update_class_room", methods=["POST"])
+def update_class_room():
+    data = request.get_json()
+    class_obj = Class.query.get(data["class_id"])
+    if not class_obj:
+        return jsonify({"error": "Class not found"}), 404
+
+    class_obj.room_number = data.get("room_number", "").strip() or None
+    db.session.commit()
+
+    return jsonify({"message": "Room number updated!"})
+
+@app.route("/mark_holiday", methods=["POST"])
+def mark_holiday():
+    data = request.get_json()
+    existing = Holiday.query.filter_by(
+        college_id=data["college_id"], holiday_date=data["holiday_date"]
+    ).first()
+    if existing:
+        return jsonify({"error": "This date is already marked as a holiday"}), 400
+    new_holiday = Holiday(
+        college_id=data["college_id"],
+        holiday_date=data["holiday_date"],
+        reason=data.get("reason", "")
+    )
+    db.session.add(new_holiday)
+    db.session.commit()
+    return jsonify({"message": "Holiday marked!", "holiday_id": new_holiday.holiday_id})
+
+@app.route("/holidays/<int:college_id>", methods=["GET"])
+def get_holidays(college_id):
+    holidays = Holiday.query.filter_by(college_id=college_id).order_by(Holiday.holiday_date.desc()).all()
+    result = []
+    for h in holidays:
+        result.append({
+            "holiday_id": h.holiday_id,
+            "holiday_date": h.holiday_date,
+            "reason": h.reason or ""
+        })
+    return jsonify(result)
+
+@app.route("/delete_holiday", methods=["POST"])
+def delete_holiday():
+    data = request.get_json()
+    holiday = Holiday.query.get(data["holiday_id"])
+    if not holiday:
+        return jsonify({"error": "Holiday not found"}), 404
+    db.session.delete(holiday)
+    db.session.commit()
+    return jsonify({"message": "Holiday removed"})
+
+@app.route("/holidays_for_class_week/<int:class_id>", methods=["GET"])
+def get_holidays_for_class_week(class_id):
+    class_obj = Class.query.get(class_id)
+    if not class_obj:
+        return jsonify({})
+    holidays = Holiday.query.filter_by(college_id=class_obj.college_id).all()
+    return jsonify({h.holiday_date: (h.reason or "Holiday") for h in holidays})
 
 if os.environ.get('WERKZEUG_RUN_MAIN') == 'true' or not app.debug:
     scheduler = BackgroundScheduler()

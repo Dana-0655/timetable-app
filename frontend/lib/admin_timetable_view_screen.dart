@@ -8,11 +8,13 @@ import 'date_helpers.dart';
 class AdminTimetableViewScreen extends StatefulWidget {
   final int classId;
   final String className;
+  final bool isReadOnly;
 
   const AdminTimetableViewScreen({
     super.key,
     required this.classId,
     required this.className,
+    this.isReadOnly = false,
   });
 
   @override
@@ -20,16 +22,51 @@ class AdminTimetableViewScreen extends StatefulWidget {
       _AdminTimetableViewScreenState();
 }
 
-class _AdminTimetableViewScreenState extends State<AdminTimetableViewScreen> {
+class _AdminTimetableViewScreenState extends State<AdminTimetableViewScreen>
+    with SingleTickerProviderStateMixin {
   List<dynamic> _entries = [];
   bool _isLoading = true;
+  Map<String, dynamic> _holidayMap = {}; // "YYYY-MM-DD" -> reason
 
-  final List<String> _days = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+  final List<String> _days = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
+  late final TabController _tabController;
 
   @override
   void initState() {
     super.initState();
+    final todayCode =
+        DateHelpers.weekDayCodes[DateTime.now().weekday - 1]; // may be 'SUN'
+    var initialIndex = _days.indexOf(todayCode);
+    if (initialIndex == -1) initialIndex = 0; // Sunday -> default to Monday
+    _tabController = TabController(
+      length: _days.length,
+      initialIndex: initialIndex,
+      vsync: this,
+    );
     _fetchTimetable();
+    _fetchHolidays();
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _fetchHolidays() async {
+    final url = Uri.parse(
+      'http://127.0.0.1:5000/holidays_for_class_week/${widget.classId}',
+    );
+    try {
+      final response = await http.get(url);
+      if (response.statusCode == 200) {
+        setState(() {
+          _holidayMap = jsonDecode(response.body);
+        });
+      }
+    } catch (e) {
+      // Silently fail for now
+    }
   }
 
   Future<void> _fetchTimetable() async {
@@ -48,14 +85,78 @@ class _AdminTimetableViewScreenState extends State<AdminTimetableViewScreen> {
     }
   }
 
-  Color _colorForStatus(String status) {
-    switch (status) {
+  Future<void> _showCourseInfo(int courseId) async {
+    final url = Uri.parse('http://127.0.0.1:5000/course_detail/$courseId');
+    try {
+      final response = await http.get(url);
+      if (!mounted) return;
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final faculty = data['faculty'];
+
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: Text(data['course_name']),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Course Code: ${data['course_code']}'),
+                const SizedBox(height: 12),
+                if (faculty != null) ...[
+                  const Text(
+                    'Faculty',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 4),
+                  Text('Name: ${faculty['name']}'),
+                  Text('Email: ${faculty['email']}'),
+                  Text('Expertise: ${faculty['subject_expertise']}'),
+                ] else
+                  const Text('No faculty assigned yet.'),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Close'),
+              ),
+            ],
+          ),
+        );
+      }
+    } catch (e) {
+      // Silently fail for now
+    }
+  }
+
+  static const List<Color> _swapPalette = [
+    Color(0xFFB3E5FC),
+    Color(0xFFC8E6C9),
+    Color(0xFFFFF9C4),
+    Color(0xFFF8BBD0),
+    Color(0xFFD1C4E9),
+    Color(0xFFFFCCBC),
+    Color(0xFFB2DFDB),
+    Color(0xFFDCEDC8),
+  ];
+
+  Color _colorForSwapId(int swapId) {
+    return _swapPalette[swapId % _swapPalette.length];
+  }
+
+  Color _colorForEntry(dynamic entry) {
+    switch (entry['status_color']) {
       case 'open_leave':
         return Colors.orange.shade100;
       case 'confirmed_cover':
         return Colors.green.shade100;
       case 'swapped':
-        return Colors.blue.shade100;
+        return entry['swap_id'] != null
+            ? _colorForSwapId(entry['swap_id'] as int)
+            : Colors.blue.shade100;
       default:
         return Colors.white;
     }
@@ -145,74 +246,197 @@ class _AdminTimetableViewScreenState extends State<AdminTimetableViewScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final todayIndex = _days.indexWhere((d) => DateHelpers.isToday(d));
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('${widget.className} - Timetable'),
+        bottom: TabBar(
+          controller: _tabController,
+          isScrollable: true,
+          tabs: _days.map((d) {
+            final isToday = DateHelpers.isToday(d);
+            return Tab(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    d,
+                    style: TextStyle(
+                      fontWeight: isToday ? FontWeight.bold : null,
+                    ),
+                  ),
+                  Text(
+                    DateHelpers.labelForDayCode(d),
+                    style: const TextStyle(fontSize: 10),
+                  ),
+                ],
+              ),
+            );
+          }).toList(),
+        ),
+      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : TabBarView(
+              controller: _tabController,
+              children: _days.map((day) {
+                final dateStr = DateHelpers.isoForDayCode(day);
+                final holidayReason = _holidayMap[dateStr];
 
-    return DefaultTabController(
-      length: _days.length,
-      initialIndex: todayIndex >= 0 ? todayIndex : 0,
-      child: Scaffold(
-        appBar: AppBar(
-          title: Text('${widget.className} - Timetable'),
-          bottom: TabBar(
-            isScrollable: true,
-            tabs: _days.map((d) {
-              final isToday = DateHelpers.isToday(d);
-              return Tab(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      d,
-                      style: TextStyle(
-                        fontWeight: isToday ? FontWeight.bold : null,
+                // Read-only viewers: a marked holiday fully replaces the
+                // schedule for this date, even if periods exist.
+                if (holidayReason != null && widget.isReadOnly) {
+                  return Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(
+                            Icons.beach_access,
+                            size: 48,
+                            color: Colors.orange,
+                          ),
+                          const SizedBox(height: 12),
+                          const Text(
+                            'Holiday',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            holidayReason.toString().isEmpty
+                                ? 'No classes today.'
+                                : holidayReason.toString(),
+                            style: const TextStyle(color: Colors.black54),
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
                       ),
                     ),
-                    Text(
-                      DateHelpers.labelForDayCode(d),
-                      style: const TextStyle(fontSize: 10),
-                    ),
-                  ],
-                ),
-              );
-            }).toList(),
-          ),
-        ),
-        body: _isLoading
-            ? const Center(child: CircularProgressIndicator())
-            : TabBarView(
-                children: _days.map((day) {
-                  final dayEntries =
-                      _entries.where((e) => e['day_of_week'] == day).toList()
-                        ..sort(
-                          (a, b) => a['period_no'].compareTo(b['period_no']),
-                        );
+                  );
+                }
 
-                  if (dayEntries.isEmpty) {
+                final dayEntries =
+                    _entries.where((e) => e['day_of_week'] == day).toList()
+                      ..sort(
+                        (a, b) => a['period_no'].compareTo(b['period_no']),
+                      );
+
+                if (dayEntries.isEmpty) {
+                  final isSunday = day == 'SUN';
+
+                  if (widget.isReadOnly) {
                     return Center(
-                      child: ElevatedButton.icon(
-                        icon: const Icon(Icons.add_chart),
-                        label: const Text('Make Schedule'),
-                        onPressed: () async {
-                          final result = await Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => ScheduleBuilderScreen(
-                                classId: widget.classId,
-                                className: widget.className,
-                                dayOfWeek: day,
-                              ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              isSunday ? Icons.weekend : Icons.event_busy,
+                              size: 48,
+                              color: Colors.grey,
                             ),
-                          );
-                          if (result == true) {
-                            _fetchTimetable();
-                          }
-                        },
+                            const SizedBox(height: 12),
+                            Text(
+                              isSunday
+                                  ? 'Sunday - Holiday'
+                                  : 'No schedule set for this day yet.',
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                            if (isSunday) ...[
+                              const SizedBox(height: 6),
+                              const Text(
+                                'No classes scheduled today.',
+                                style: TextStyle(color: Colors.black54),
+                                textAlign: TextAlign.center,
+                              ),
+                            ],
+                          ],
+                        ),
                       ),
                     );
                   }
 
-                  return Column(
-                    children: [
+                  return Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (isSunday) ...[
+                          const Icon(
+                            Icons.weekend,
+                            size: 40,
+                            color: Colors.grey,
+                          ),
+                          const SizedBox(height: 8),
+                          const Text(
+                            'Sunday is usually a holiday.',
+                            style: TextStyle(color: Colors.black54),
+                          ),
+                          const SizedBox(height: 12),
+                        ],
+                        ElevatedButton.icon(
+                          icon: const Icon(Icons.add_chart),
+                          label: Text(
+                            isSunday ? 'Add Schedule Anyway' : 'Make Schedule',
+                          ),
+                          onPressed: () async {
+                            final result = await Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => ScheduleBuilderScreen(
+                                  classId: widget.classId,
+                                  className: widget.className,
+                                  dayOfWeek: day,
+                                ),
+                              ),
+                            );
+                            if (result == true) {
+                              _fetchTimetable();
+                            }
+                          },
+                        ),
+                      ],
+                    ),
+                  );
+                }
+
+                return Column(
+                  children: [
+                    if (holidayReason != null)
+                      Container(
+                        width: double.infinity,
+                        color: Colors.orange.shade50,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 10,
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.beach_access,
+                              size: 18,
+                              color: Colors.orange,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'Marked as a holiday'
+                                '${holidayReason.toString().isEmpty ? '' : ': $holidayReason'}. '
+                                'Students and teaching faculty won\'t see this day\'s schedule.',
+                                style: const TextStyle(fontSize: 12),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    if (!widget.isReadOnly)
                       Padding(
                         padding: const EdgeInsets.all(8),
                         child: Align(
@@ -230,114 +454,125 @@ class _AdminTimetableViewScreenState extends State<AdminTimetableViewScreen> {
                           ),
                         ),
                       ),
-                      Expanded(
-                        child: ListView.builder(
-                          padding: const EdgeInsets.all(16),
-                          itemCount: dayEntries.length,
-                          itemBuilder: (context, index) {
-                            final entry = dayEntries[index];
-                            final isBreakEntry = entry['entry_type'] == 'break';
-                            final isFilled = isBreakEntry
-                                ? entry['label'] != null
-                                : entry['course_name'] != null;
+                    Expanded(
+                      child: ListView.builder(
+                        padding: const EdgeInsets.all(16),
+                        itemCount: dayEntries.length,
+                        itemBuilder: (context, index) {
+                          final entry = dayEntries[index];
+                          final isBreakEntry = entry['entry_type'] == 'break';
+                          final isFilled = isBreakEntry
+                              ? entry['label'] != null
+                              : entry['course_name'] != null;
 
-                            return Card(
-                              color: isBreakEntry
-                                  ? Colors.grey.shade200
-                                  : _colorForStatus(entry['status_color']),
-                              child: ListTile(
-                                leading: Icon(
-                                  isBreakEntry
-                                      ? Icons.free_breakfast
-                                      : Icons.book,
-                                ),
-                                title: Text(
-                                  isBreakEntry
-                                      ? (entry['label'] ??
-                                            'Break (tap to set up)')
-                                      : (entry['course_name'] ??
-                                            'Period ${entry['period_no']} (tap to set up)'),
-                                ),
-                                subtitle: Text(
-                                  isFilled
-                                      ? '${entry['start_time'] ?? ''} - ${entry['end_time'] ?? ''}'
-                                            '${!isBreakEntry ? ' • ${entry['faculty_name'] ?? 'No faculty assigned'}' : ''}'
-                                      : 'Tap to fill in details',
-                                ),
-                                trailing: isFilled
-                                    ? Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          IconButton(
-                                            icon: const Icon(
-                                              Icons.edit,
-                                              size: 20,
-                                            ),
-                                            onPressed: () async {
-                                              final result = await Navigator.push(
-                                                context,
-                                                MaterialPageRoute(
-                                                  builder: (context) =>
-                                                      FillSlotScreen(
-                                                        entryId:
-                                                            entry['entry_id'],
-                                                        entryType:
-                                                            entry['entry_type'],
-                                                        isEdit: true,
-                                                        existingCourseName:
-                                                            entry['course_name'],
-                                                        existingLabel:
-                                                            entry['label'],
-                                                        existingStartTime:
-                                                            entry['start_time'],
-                                                        existingEndTime:
-                                                            entry['end_time'],
-                                                      ),
-                                                ),
-                                              );
-                                              if (result == true)
-                                                _fetchTimetable();
-                                            },
-                                          ),
-                                          IconButton(
-                                            icon: const Icon(
-                                              Icons.delete,
-                                              size: 20,
-                                              color: Colors.red,
-                                            ),
-                                            onPressed: () => _confirmDeleteSlot(
-                                              entry['entry_id'],
-                                            ),
-                                          ),
-                                        ],
-                                      )
-                                    : const Icon(Icons.edit),
-                                onTap: isFilled
-                                    ? null
-                                    : () async {
-                                        final result = await Navigator.push(
-                                          context,
-                                          MaterialPageRoute(
-                                            builder: (context) =>
-                                                FillSlotScreen(
-                                                  entryId: entry['entry_id'],
-                                                  entryType:
-                                                      entry['entry_type'],
-                                                ),
-                                          ),
-                                        );
-                                        if (result == true) _fetchTimetable();
-                                      },
+                          return Card(
+                            color: isBreakEntry
+                                ? Colors.grey.shade200
+                                : _colorForEntry(entry),
+                            child: ListTile(
+                              leading: Icon(
+                                isBreakEntry
+                                    ? Icons.free_breakfast
+                                    : Icons.book,
                               ),
-                            );
-                          },
-                        ),
+                              title: Text(
+                                isBreakEntry
+                                    ? (entry['label'] ??
+                                          'Break (tap to set up)')
+                                    : (entry['course_name'] ??
+                                          'Period ${entry['period_no']} (tap to set up)'),
+                              ),
+                              subtitle: Text(
+                                isFilled
+                                    ? '${entry['start_time'] ?? ''} - ${entry['end_time'] ?? ''}'
+                                          '${!isBreakEntry ? ' • ${entry['faculty_name'] ?? 'No faculty assigned'}' : ''}'
+                                    : (widget.isReadOnly
+                                          ? 'Not scheduled'
+                                          : 'Tap to fill in details'),
+                              ),
+                              trailing: widget.isReadOnly
+                                  ? (isFilled && !isBreakEntry
+                                        ? IconButton(
+                                            icon: const Icon(
+                                              Icons.info_outline,
+                                              size: 20,
+                                            ),
+                                            onPressed: () => _showCourseInfo(
+                                              entry['course_id'],
+                                            ),
+                                          )
+                                        : null)
+                                  : isFilled
+                                  ? Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        IconButton(
+                                          icon: const Icon(
+                                            Icons.edit,
+                                            size: 20,
+                                          ),
+                                          onPressed: () async {
+                                            final result = await Navigator.push(
+                                              context,
+                                              MaterialPageRoute(
+                                                builder: (context) =>
+                                                    FillSlotScreen(
+                                                      entryId:
+                                                          entry['entry_id'],
+                                                      entryType:
+                                                          entry['entry_type'],
+                                                      isEdit: true,
+                                                      existingCourseName:
+                                                          entry['course_name'],
+                                                      existingLabel:
+                                                          entry['label'],
+                                                      existingStartTime:
+                                                          entry['start_time'],
+                                                      existingEndTime:
+                                                          entry['end_time'],
+                                                    ),
+                                              ),
+                                            );
+                                            if (result == true)
+                                              _fetchTimetable();
+                                          },
+                                        ),
+                                        IconButton(
+                                          icon: const Icon(
+                                            Icons.delete,
+                                            size: 20,
+                                            color: Colors.red,
+                                          ),
+                                          onPressed: () => _confirmDeleteSlot(
+                                            entry['entry_id'],
+                                          ),
+                                        ),
+                                      ],
+                                    )
+                                  : const Icon(Icons.edit),
+                              onTap: widget.isReadOnly || isFilled
+                                  ? null
+                                  : () async {
+                                      final result = await Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (context) => FillSlotScreen(
+                                            entryId: entry['entry_id'],
+                                            entryType: entry['entry_type'],
+                                          ),
+                                        ),
+                                      );
+                                      if (result == true) _fetchTimetable();
+                                    },
+                            ),
+                          );
+                        },
                       ),
-                    ],
-                  );
-                }).toList(),
-              ),
-      ),
+                    ),
+                  ],
+                );
+              }).toList(),
+            ),
     );
   }
 }

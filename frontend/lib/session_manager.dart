@@ -1,27 +1,29 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
 class SessionManager {
+  // ---- Admin / Faculty session ----
+
   static Future<void> saveAdminSession(
     int adminId,
-    String name,
+    String adminName,
     int collegeId,
   ) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('role', 'admin');
     await prefs.setInt('adminId', adminId);
-    await prefs.setString('name', name);
+    await prefs.setString('name', adminName);
     await prefs.setInt('collegeId', collegeId);
   }
 
   static Future<void> saveFacultySession(
     int facultyId,
-    String name,
+    String facultyName,
     int collegeId,
   ) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('role', 'faculty');
     await prefs.setInt('facultyId', facultyId);
-    await prefs.setString('name', name);
+    await prefs.setString('name', facultyName);
     await prefs.setInt('collegeId', collegeId);
   }
 
@@ -41,6 +43,45 @@ class SessionManager {
 
   static Future<void> clearSession() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.clear();
+    await prefs.remove('role');
+    await prefs.remove('adminId');
+    await prefs.remove('facultyId');
+    await prefs.remove('name');
+    await prefs.remove('collegeId');
+  }
+
+  // ---- Default pinned class (student, no login) ----
+
+  static Future<void> saveDefaultClass(
+    int classId,
+    String className, {
+    int? collegeId,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('default_class_id', classId);
+    await prefs.setString('default_class_name', className);
+    if (collegeId != null) {
+      await prefs.setInt('default_college_id', collegeId);
+    } else {
+      await prefs.remove('default_college_id');
+    }
+  }
+
+  static Future<Map<String, dynamic>?> getDefaultClass() async {
+    final prefs = await SharedPreferences.getInstance();
+    final classId = prefs.getInt('default_class_id');
+    if (classId == null) return null;
+    return {
+      'classId': classId,
+      'className': prefs.getString('default_class_name'),
+      'collegeId': prefs.getInt('default_college_id'),
+    };
+  }
+
+  static Future<void> clearDefaultClass() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('default_class_id');
+    await prefs.remove('default_class_name');
+    await prefs.remove('default_college_id');
   }
 }

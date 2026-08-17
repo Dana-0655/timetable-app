@@ -3,3 +3,11 @@ __pycache__/
 *.pyc
 instance/
 .env
+
+# Flutter build artifacts
+.dart_tool/
+frontend/.dart_tool/
+frontend/build/
+build/
+.idea/
+.vscode/

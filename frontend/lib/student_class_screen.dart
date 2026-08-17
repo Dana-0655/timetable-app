@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'student_timetable_screen.dart';
+import 'class_info_dialog.dart';
 
 class StudentClassScreen extends StatefulWidget {
   final int collegeId;
@@ -68,17 +69,34 @@ class _StudentClassScreenState extends State<StudentClassScreen> {
               itemCount: _classes.length,
               itemBuilder: (context, index) {
                 final cls = _classes[index];
+                final className =
+                    '${cls['year']} - ${widget.department} - ${cls['section']}';
                 return Card(
                   child: ListTile(
                     title: Text('${cls['year']} - Section ${cls['section']}'),
-                    trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.info_outline),
+                          tooltip: 'Class Details',
+                          onPressed: () => showClassInfoDialog(
+                            context,
+                            classId: cls['class_id'],
+                            className: className,
+                            canEdit: false, // students are always read-only
+                          ),
+                        ),
+                        const Icon(Icons.arrow_forward_ios, size: 16),
+                      ],
+                    ),
                     onTap: () {
                       Navigator.push(
                         context,
                         MaterialPageRoute(
                           builder: (context) => StudentTimetableScreen(
                             classId: cls['class_id'],
-                            className: '${cls['year']} - ${cls['section']}',
+                            className: className,
                           ),
                         ),
                       );

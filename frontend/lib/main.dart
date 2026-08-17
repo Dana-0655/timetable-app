@@ -6,6 +6,7 @@ import 'session_manager.dart';
 import 'admin_dashboard_screen.dart';
 import 'faculty_dashboard_screen.dart';
 import 'create_college_screen.dart';
+import 'student_timetable_screen.dart';
 
 void main() {
   runApp(const MyApp());
@@ -67,6 +68,21 @@ class _SessionCheckerState extends State<SessionChecker> {
   }
 
   Future<void> _checkSession() async {
+    final defaultClass = await SessionManager.getDefaultClass();
+    if (defaultClass != null) {
+      if (!mounted) return;
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (context) => StudentTimetableScreen(
+            classId: defaultClass['classId'],
+            className: defaultClass['className'],
+          ),
+        ),
+      );
+      return;
+    }
+
     final session = await SessionManager.getSession();
 
     if (!mounted) return;

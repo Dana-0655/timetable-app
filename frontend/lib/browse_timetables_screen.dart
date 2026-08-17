@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'timetable_grid_screen.dart';
+import 'class_info_dialog.dart';
 
 class BrowseTimetablesScreen extends StatefulWidget {
   final int facultyId;
@@ -74,21 +75,39 @@ class _BrowseTimetablesScreenState extends State<BrowseTimetablesScreen> {
               itemCount: _classes.length,
               itemBuilder: (context, index) {
                 final cls = _classes[index];
+                final isCC = cls['cc_faculty_id'] == widget.facultyId;
+                final className = '${cls['year']} - ${cls['section']}';
                 return Card(
                   child: ListTile(
                     title: Text(
                       '${cls['year']} - ${cls['department']} - ${cls['section']}',
                       style: classHighlightStyle,
                     ),
-                    trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.info_outline),
+                          tooltip: 'Class Details',
+                          onPressed: () => showClassInfoDialog(
+                            context,
+                            classId: cls['class_id'],
+                            className: className,
+                            canEdit: isCC,
+                          ),
+                        ),
+                        const Icon(Icons.arrow_forward_ios, size: 16),
+                      ],
+                    ),
                     onTap: () {
                       Navigator.push(
                         context,
                         MaterialPageRoute(
                           builder: (context) => TimetableGridScreen(
                             classId: cls['class_id'],
-                            className: '${cls['year']} - ${cls['section']}',
+                            className: className,
                             facultyId: widget.facultyId,
+                            isCC: isCC,
                           ),
                         ),
                       );
