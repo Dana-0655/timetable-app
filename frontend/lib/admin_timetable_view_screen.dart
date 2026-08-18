@@ -6,6 +6,7 @@ import 'schedule_builder_screen.dart';
 import 'date_helpers.dart';
 import 'weekly_matrix_grid_widget.dart';
 import 'session_manager.dart';
+import 'admin_timetable_upload_screen.dart';
 
 class AdminTimetableViewScreen extends StatefulWidget {
   final int classId;
@@ -580,8 +581,6 @@ class _AdminTimetableViewScreenState extends State<AdminTimetableViewScreen>
                 final holidayReason = holidayInfo?['reason'];
                 final holidayId = holidayInfo?['holiday_id'];
 
-                // Read-only viewers: a marked holiday fully replaces the
-                // schedule for this date, even if periods exist.
                 if (holidayInfo != null && widget.isReadOnly) {
                   return Center(
                     child: Padding(
@@ -698,6 +697,47 @@ class _AdminTimetableViewScreenState extends State<AdminTimetableViewScreen>
                             if (result == true) {
                               _fetchTimetable();
                             }
+                          },
+                        ),
+                        const SizedBox(height: 12),
+                        OutlinedButton.icon(
+                          icon: const Icon(
+                            Icons.auto_awesome,
+                            color: Colors.amber,
+                          ),
+                          label: const Text('Auto-Generate (Upload Excel)'),
+                          onPressed: () {
+                            showDialog(
+                              context: context,
+                              builder: (ctx) => AlertDialog(
+                                title: const Text('Auto-Generate Timetable'),
+                                content: const Text(
+                                  'Auto-generation schedules all classes in the semester at once using the CP-SAT solver. Proceed to the upload screen?',
+                                ),
+                                actions: [
+                                  TextButton(
+                                    onPressed: () => Navigator.pop(ctx),
+                                    child: const Text('Cancel'),
+                                  ),
+                                  ElevatedButton(
+                                    onPressed: () {
+                                      Navigator.pop(ctx);
+                                      Navigator.pop(context);
+                                      ScaffoldMessenger.of(
+                                        context,
+                                      ).showSnackBar(
+                                        const SnackBar(
+                                          content: Text(
+                                            'Click the ✨ icon in the top right to start Auto-Generation.',
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                    child: const Text('Go to Uploader'),
+                                  ),
+                                ],
+                              ),
+                            );
                           },
                         ),
                         const SizedBox(height: 12),

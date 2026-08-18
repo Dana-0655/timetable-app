@@ -16,6 +16,7 @@ import 'faculty_pending_leaves_screen.dart';
 import 'faculty_swap_responses_screen.dart';
 import 'browse_timetables_screen.dart';
 import 'holiday_management_screen.dart';
+import 'admin_timetable_upload_screen.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
   final int adminId;
@@ -40,6 +41,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
   int? _localSemesterId;
   String? _localSemesterName;
+  int? _activeSemesterId;
 
   int? _linkedFacultyId;
   List<dynamic> _myRoleClasses = [];
@@ -48,6 +50,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   @override
   void initState() {
     super.initState();
+    _fetchActiveSemester();
     _fetchClasses();
     _fetchMyFacultyRoles();
   }
@@ -81,6 +84,29 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
               !visibleIds.contains(c['class_id']),
         )
         .toList();
+  }
+
+  Future<void> _fetchActiveSemester() async {
+    final semUrl = Uri.parse(
+      'http://127.0.0.1:5000/semesters/${widget.collegeId}',
+    );
+    try {
+      final semResponse = await http.get(semUrl);
+      if (semResponse.statusCode == 200) {
+        final List<dynamic> semesters = jsonDecode(semResponse.body);
+        final activeSem = semesters.cast<Map<String, dynamic>?>().firstWhere(
+          (s) => s != null && s['is_active'] == true,
+          orElse: () => null,
+        );
+
+        setState(() {
+          _hasActiveSemester = activeSem != null;
+          _activeSemesterId = activeSem?['semester_id'];
+        });
+      }
+    } catch (e) {
+      // Silently fail for now
+    }
   }
 
   Future<void> _showInviteFacultyDialog(int classId) async {
@@ -671,7 +697,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     }
   }
 
-  /// Opens a pre-filled edit dialog for a class's year/section/department.
   void _showEditClassDialog(dynamic cls) {
     final yearController = TextEditingController(text: cls['year']);
     final sectionController = TextEditingController(text: cls['section']);
@@ -758,7 +783,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       final data = jsonDecode(response.body);
       if (response.statusCode == 200) {
         _fetchClasses();
-        _fetchMyFacultyRoles(); // class names may have changed
+        _fetchMyFacultyRoles();
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text(data['message'] ?? 'Class updated!')),
@@ -790,6 +815,33 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         title: Text('Welcome, ${widget.adminName}'),
         actions: [
           NotificationBell(recipientType: 'admin', recipientId: widget.adminId),
+          IconButton(
+            icon: const Icon(Icons.auto_awesome, color: Colors.amber),
+            tooltip: 'Auto Generate Timetable',
+            onPressed: () {
+              final targetSemesterId = _localSemesterId ?? _activeSemesterId;
+              if (targetSemesterId == null) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text(
+                      'Please create or select an active semester first.',
+                    ),
+                  ),
+                );
+                return;
+              }
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => AdminTimetableUploadScreen(
+                    collegeId: widget.collegeId,
+                    semesterId: targetSemesterId,
+                    baseUrl: 'http://127.0.0.1:5000',
+                  ),
+                ),
+              ).then((_) => _fetchClasses());
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.person_add),
             tooltip: 'Add Faculty',
