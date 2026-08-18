@@ -118,6 +118,7 @@ class _SessionCheckerState extends State<SessionChecker> {
                 builder: (context) => AdminTimetableViewScreen(
                   classId: classId,
                   className: className,
+                  collegeId: session['collegeId'],
                   isReadOnly: isReadOnly,
                 ),
               ),
@@ -141,6 +142,7 @@ class _SessionCheckerState extends State<SessionChecker> {
                   classId: classId,
                   className: className,
                   facultyId: facultyId,
+                  collegeId: session['collegeId'],
                   isCC: isCC,
                 ),
               ),
@@ -182,6 +184,7 @@ class _SessionCheckerState extends State<SessionChecker> {
                   classId: classId,
                   className: className,
                   facultyId: facultyId,
+                  collegeId: session['collegeId'],
                   isCC: isCC,
                 ),
               ),
@@ -202,6 +205,7 @@ class _SessionCheckerState extends State<SessionChecker> {
                 builder: (context) => AdminTimetableViewScreen(
                   classId: classId,
                   className: className,
+                  collegeId: session['collegeId'],
                   isReadOnly: true,
                 ),
               ),

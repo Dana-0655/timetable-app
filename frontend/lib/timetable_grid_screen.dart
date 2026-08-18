@@ -3,14 +3,12 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'schedule_builder_screen.dart';
 import 'date_helpers.dart';
-import 'weekly_matrix_grid_widget.dart';
-import 'future_absent_calendar_dialog.dart';
-import 'session_manager.dart';
 
 class TimetableGridScreen extends StatefulWidget {
   final int classId;
   final String className;
   final int facultyId;
+  final int collegeId;
   final bool isCC;
 
   const TimetableGridScreen({
@@ -18,6 +16,7 @@ class TimetableGridScreen extends StatefulWidget {
     required this.classId,
     required this.className,
     required this.facultyId,
+    required this.collegeId,
     this.isCC = true,
   });
 
@@ -25,23 +24,16 @@ class TimetableGridScreen extends StatefulWidget {
   State<TimetableGridScreen> createState() => _TimetableGridScreenState();
 }
 
-enum _ViewMode { list, grid }
-
 class _TimetableGridScreenState extends State<TimetableGridScreen>
     with SingleTickerProviderStateMixin {
   List<dynamic> _entries = [];
   bool _isLoading = true;
   bool _swapMode = false;
   dynamic _selectedMyEntry;
-  _ViewMode _viewMode = _ViewMode.list;
 
   final List<String> _days = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
   late final TabController _tabController;
   Map<String, dynamic> _holidayMap = {}; // "YYYY-MM-DD" -> reason
-
-  final GlobalKey _matrixKey = GlobalKey();
-
-
 
   @override
   void initState() {
@@ -54,18 +46,8 @@ class _TimetableGridScreenState extends State<TimetableGridScreen>
       initialIndex: initialIndex,
       vsync: this,
     );
-    _loadSavedViewMode();
     _fetchTimetable();
     _fetchHolidays();
-  }
-
-  Future<void> _loadSavedViewMode() async {
-    final saved2D = await SessionManager.getPreferredViewMode('faculty');
-    if (mounted) {
-      setState(() {
-        _viewMode = saved2D ? _ViewMode.grid : _ViewMode.list;
-      });
-    }
   }
 
   @override
@@ -84,6 +66,113 @@ class _TimetableGridScreenState extends State<TimetableGridScreen>
         setState(() {
           _holidayMap = jsonDecode(response.body);
         });
+      }
+    } catch (e) {
+      // Silently fail for now
+    }
+  }
+
+  void _confirmMarkHoliday(String day) {
+    final dateStr = DateHelpers.isoForDayCode(day);
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Mark Holiday'),
+        content: Text(
+          'Mark $day ($dateStr) as a holiday? The schedule for this date '
+          'will be hidden from students and teaching faculty.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              await _markHoliday(dateStr);
+            },
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _markHoliday(String dateStr) async {
+    final url = Uri.parse('http://127.0.0.1:5000/mark_holiday');
+    try {
+      final response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'college_id': widget.collegeId,
+          'holiday_date': dateStr,
+        }),
+      );
+      final data = jsonDecode(response.body);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              response.statusCode == 200
+                  ? (data['message'] ?? 'Holiday marked!')
+                  : (data['error'] ?? 'Could not mark holiday.'),
+            ),
+          ),
+        );
+      }
+      if (response.statusCode == 200) _fetchHolidays();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not connect to server.')),
+        );
+      }
+    }
+  }
+
+  void _confirmUnmarkHoliday(int holidayId, String day) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Remove Holiday'),
+        content: Text(
+          'Unmark $day as a holiday? The schedule will show again.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () async {
+              Navigator.pop(context);
+              await _unmarkHoliday(holidayId);
+            },
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _unmarkHoliday(int holidayId) async {
+    final url = Uri.parse('http://127.0.0.1:5000/delete_holiday');
+    try {
+      final response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'holiday_id': holidayId}),
+      );
+      if (response.statusCode == 200) {
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('Holiday removed.')));
+        }
+        _fetchHolidays();
       }
     } catch (e) {
       // Silently fail for now
@@ -130,9 +219,7 @@ class _TimetableGridScreenState extends State<TimetableGridScreen>
     }
     switch (entry['status_color']) {
       case 'open_leave':
-        // CC sees red as a clear "tap me to assign a substitute" cue;
-        // everyone else keeps the original orange highlight.
-        return widget.isCC ? Colors.red.shade100 : Colors.orange.shade100;
+        return Colors.orange.shade100;
       case 'confirmed_cover':
         return Colors.green.shade100;
       case 'swapped':
@@ -233,647 +320,324 @@ class _TimetableGridScreenState extends State<TimetableGridScreen>
     });
   }
 
-  /// CC tapped an open (absent, unfilled) slot directly in the grid.
-  /// Looks up the underlying leave, then shows the substitute picker —
-  /// course faculty for this class are labeled with their course name,
-  /// everyone else is labeled "Substitution".
-  Future<void> _handleOpenSlotTap(dynamic entry) async {
-    final leaveUrl = Uri.parse(
-      'http://127.0.0.1:5000/leave_by_entry/${entry['entry_id']}',
-    );
-    try {
-      final leaveResponse = await http.get(leaveUrl);
-      if (leaveResponse.statusCode != 200) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('This slot is no longer open.')),
-          );
-        }
-        return;
-      }
-      final leaveId = jsonDecode(leaveResponse.body)['leave_id'];
-      await _showAssignSubstituteDialog(
-        leaveId,
-        '${entry['day_of_week']} Period ${entry['period_no']}',
-      );
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not connect to server.')),
-        );
-      }
-    }
-  }
-
-  Future<void> _showAssignSubstituteDialog(int leaveId, String slotInfo) async {
-    final url = Uri.parse(
-      'http://127.0.0.1:5000/class_faculty_options/${widget.classId}',
-    );
-    try {
-      final response = await http.get(url);
-      final List<dynamic> options = jsonDecode(response.body);
-
-      if (!mounted) return;
-
-      showDialog(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: Text('Assign Substitute - $slotInfo'),
-          content: SizedBox(
-            width: double.maxFinite,
-            child: options.isEmpty
-                ? const Text('No faculty available.')
-                : ListView.builder(
-                    shrinkWrap: true,
-                    itemCount: options.length,
-                    itemBuilder: (context, index) {
-                      final f = options[index];
-                      final isRelated = f['is_related'] == true;
-                      return ListTile(
-                        title: Text(
-                          f['label'],
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: isRelated
-                                ? Colors.blue.shade800
-                                : Colors.grey.shade700,
-                          ),
-                        ),
-                        subtitle: Text(f['name']),
-                        trailing: ElevatedButton(
-                          onPressed: () async {
-                            Navigator.pop(context);
-                            await _assignSubstitute(leaveId, f['faculty_id']);
-                          },
-                          child: const Text('Assign'),
-                        ),
-                      );
-                    },
-                  ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
-            ),
-          ],
-        ),
-      );
-    } catch (e) {
-      // Silently fail for now
-    }
-  }
-
-  Future<void> _assignSubstitute(int leaveId, int facultyId) async {
-    final url = Uri.parse('http://127.0.0.1:5000/invite_substitute');
-    try {
-      final response = await http.post(
-        url,
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'leave_id': leaveId, 'faculty_id': facultyId}),
-      );
-      final data = jsonDecode(response.body);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              response.statusCode == 200
-                  ? (data['message'] ?? 'Substitute assigned!')
-                  : (data['error'] ?? 'Could not assign substitute.'),
-            ),
-          ),
-        );
-      }
-      if (response.statusCode == 200) {
-        _fetchTimetable();
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not connect to server.')),
-        );
-      }
-    }
-  }
-
-  /// Friend's feature: mark leave for every class this faculty teaches
-  /// today, and let the backend's smart engine auto-pick substitutes.
-  Future<void> _markFullDayLeaveAndAutoAllocate() async {
-    final now = DateTime.now();
-    final dateStr =
-        '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
-    final dayOfWeek = DateHelpers.weekDayCodes[now.weekday - 1];
-
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Row(
-          children: [
-            Icon(Icons.event_busy, color: Colors.deepOrange),
-            SizedBox(width: 8),
-            Text('Mark Full-Day Leave'),
-          ],
-        ),
-        content: Text(
-          'Mark leave for ALL your classes today ($dateStr, $dayOfWeek)?\n\n'
-          '⚡ The Smart Engine will automatically find optimal substitute teachers for each period and notify students, covering faculty, and admins!',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.deepOrange),
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Mark & Auto-Allocate'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirm != true) return;
-
-    final url = Uri.parse('http://127.0.0.1:5000/auto_allocate_day_leave');
-    try {
-      final response = await http.post(
-        url,
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'faculty_id': widget.facultyId,
-          'leave_date': dateStr,
-          'day_of_week': dayOfWeek,
-        }),
-      );
-
-      if (response.statusCode == 200) {
-        final res = jsonDecode(response.body);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('⚡ ${res["message"]}'),
-              backgroundColor: Colors.green.shade800,
-            ),
-          );
-        }
-        _fetchTimetable();
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Could not connect to server.'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
-  }
-
-  String _timeRange(dynamic entry) {
-    final start = entry['start_time'];
-    final end = entry['end_time'];
-    if (start == null || end == null) return '';
-    return '$start - $end';
-  }
-
-  /// Period card layout:
-  /// [small] start–end time · Period N
-  /// [bold, dark, larger] Course name
-  /// [normal] Faculty name
-  ///
-  /// Also handles the two interactive modes: swap-mode tap-to-select, and
-  /// (outside swap mode) CC tap-to-assign-substitute on a red open slot.
-  Widget _buildPeriodCard(dynamic entry) {
-    final tappableForSwap = _isTappable(entry);
-    final isSwapped = entry['status_color'] == 'swapped';
-    final isOpen = entry['status_color'] == 'open_leave';
-    final ccCanAssign = !_swapMode && widget.isCC && isOpen;
-    final timeRange = _timeRange(entry);
-    final periodLabel = 'Period ${entry['period_no']}';
-
-    VoidCallback? onTap;
-    if (_swapMode) {
-      onTap = tappableForSwap ? () => _onEntryTap(entry) : null;
-    } else if (ccCanAssign) {
-      onTap = () => _handleOpenSlotTap(entry);
-    }
-
-    return Opacity(
-      opacity: _swapMode && !tappableForSwap && _selectedMyEntry != entry
-          ? 0.4
-          : 1.0,
-      child: Card(
-        color: _colorForEntry(entry),
-        child: Stack(
-          children: [
-            InkWell(
-              onTap: onTap,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 14,
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      timeRange.isEmpty
-                          ? periodLabel
-                          : '$timeRange  •  $periodLabel',
-                      style: const TextStyle(
-                        fontSize: 11,
-                        color: Colors.black54,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      entry['course_name'] ?? 'Unassigned',
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF212121),
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      ccCanAssign
-                          ? '${entry['faculty_name'] ?? 'No faculty'} • Absent — tap to assign'
-                          : (entry['faculty_name'] ?? 'No faculty'),
-                      style: const TextStyle(
-                        fontSize: 13,
-                        color: Colors.black87,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            if (isSwapped)
-              Positioned(
-                top: 6,
-                right: 6,
-                child: Tooltip(
-                  message: entry['swap_id'] != null
-                      ? 'Swapped period (pair #${entry['swap_id']})'
-                      : 'Swapped period',
-                  child: Container(
-                    padding: const EdgeInsets.all(4),
-                    decoration: BoxDecoration(
-                      color: entry['swap_id'] != null
-                          ? Color.alphaBlend(
-                              Colors.black26,
-                              _colorForSwapId(entry['swap_id'] as int),
-                            )
-                          : Colors.blue.shade700,
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.swap_horiz,
-                      size: 14,
-                      color: Colors.white,
-                    ),
-                  ),
-                ),
-              ),
-            if (ccCanAssign)
-              Positioned(
-                top: 6,
-                right: 6,
-                child: Tooltip(
-                  message: 'Tap to assign substitute',
-                  child: Container(
-                    padding: const EdgeInsets.all(4),
-                    decoration: BoxDecoration(
-                      color: Colors.red.shade700,
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.person_add,
-                      size: 14,
-                      color: Colors.white,
-                    ),
-                  ),
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// Break card layout — deliberately minimal, nothing period-related:
-  /// [small] start–end time
-  /// [bold, dark] Break name
-  Widget _buildBreakCard(dynamic entry) {
-    final timeRange = _timeRange(entry);
-    return Card(
-      color: Colors.grey.shade100,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (timeRange.isNotEmpty)
-              Text(
-                timeRange,
-                style: const TextStyle(fontSize: 11, color: Colors.black54),
-              ),
-            const SizedBox(height: 4),
-            Text(
-              entry['label'] ?? 'Break',
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF212121),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildListView() {
-    return Column(
-      children: [
-        if (_swapMode)
-          Container(
-            width: double.infinity,
-            color: Colors.blue.shade50,
-            padding: const EdgeInsets.all(12),
-            child: Text(
-              _selectedMyEntry == null
-                  ? 'Tap YOUR period to give up'
-                  : 'Now tap the period you want instead',
-              style: const TextStyle(fontWeight: FontWeight.bold),
-            ),
-          ),
-        Expanded(
-          child: _isLoading
-              ? const Center(child: CircularProgressIndicator())
-              : TabBarView(
-                  controller: _tabController,
-                  children: _days.map((day) {
-                    final dateStr = DateHelpers.isoForDayCode(day);
-                    final holidayReason = _holidayMap[dateStr];
-
-                    final dayEntries =
-                        _entries.where((e) => e['day_of_week'] == day).toList()
-                          ..sort(
-                            (a, b) => a['period_no'].compareTo(b['period_no']),
-                          );
-
-                    // Only show the "tap red to assign" hint on a day
-                    // that actually has an open slot — not on every day
-                    // regardless of whether anything's absent.
-                    final hasOpenSlotToday = dayEntries.any(
-                      (e) => e['status_color'] == 'open_leave',
-                    );
-
-                    Widget? holidayBanner;
-                    if (holidayReason != null) {
-                      holidayBanner = Container(
-                        width: double.infinity,
-                        color: Colors.orange.shade50,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 10,
-                        ),
-                        child: Row(
-                          children: [
-                            const Icon(
-                              Icons.beach_access,
-                              size: 18,
-                              color: Colors.orange,
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                'Marked as a holiday'
-                                '${holidayReason.toString().isEmpty ? '' : ': $holidayReason'}. '
-                                'Students and teaching faculty won\'t see this day\'s schedule.',
-                                style: const TextStyle(fontSize: 12),
-                              ),
-                            ),
-                          ],
-                        ),
-                      );
-                    }
-
-                    Widget? openSlotBanner;
-                    if (!_swapMode && widget.isCC && hasOpenSlotToday) {
-                      openSlotBanner = Container(
-                        width: double.infinity,
-                        color: Colors.red.shade50,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 8,
-                        ),
-                        child: const Text(
-                          'Tap a red (open) period to assign a substitute',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      );
-                    }
-
-                    if (dayEntries.isEmpty) {
-                      final isSunday = day == 'SUN';
-                      return Column(
-                        children: [
-                          if (holidayBanner != null) holidayBanner,
-                          Expanded(
-                            child: Center(
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  if (isSunday) ...[
-                                    const Icon(
-                                      Icons.weekend,
-                                      size: 40,
-                                      color: Colors.grey,
-                                    ),
-                                    const SizedBox(height: 8),
-                                    const Text(
-                                      'Sunday is usually a holiday.',
-                                      style: TextStyle(color: Colors.black54),
-                                    ),
-                                    const SizedBox(height: 12),
-                                  ],
-                                  ElevatedButton.icon(
-                                    icon: const Icon(Icons.add_chart),
-                                    label: Text(
-                                      isSunday
-                                          ? 'Add Schedule Anyway'
-                                          : 'Make Schedule',
-                                    ),
-                                    onPressed: () async {
-                                      final result = await Navigator.push(
-                                        context,
-                                        MaterialPageRoute(
-                                          builder: (context) =>
-                                              ScheduleBuilderScreen(
-                                                classId: widget.classId,
-                                                className: widget.className,
-                                                dayOfWeek: day,
-                                              ),
-                                        ),
-                                      );
-                                      if (result == true) {
-                                        _fetchTimetable();
-                                      }
-                                    },
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ],
-                      );
-                    }
-
-                    return Column(
-                      children: [
-                        if (holidayBanner != null) holidayBanner,
-                        if (openSlotBanner != null) openSlotBanner,
-                        Expanded(
-                          child: ListView.builder(
-                            padding: const EdgeInsets.all(16),
-                            itemCount: dayEntries.length,
-                            itemBuilder: (context, index) {
-                              final entry = dayEntries[index];
-                              final isBreak = entry['entry_type'] == 'break';
-                              return Padding(
-                                padding: const EdgeInsets.only(bottom: 4),
-                                child: isBreak
-                                    ? _buildBreakCard(entry)
-                                    : _buildPeriodCard(entry),
-                              );
-                            },
-                          ),
-                        ),
-                      ],
-                    );
-                  }).toList(),
-                ),
-        ),
-      ],
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.className),
-        actions: [
-          IconButton(
-            icon: Icon(
-              _viewMode == _ViewMode.list ? Icons.grid_view : Icons.view_agenda,
-            ),
-            tooltip: _viewMode == _ViewMode.list
-                ? 'Switch to Grid View'
-                : 'Switch to List View',
-            onPressed: () {
-              setState(() {
-                _viewMode = _viewMode == _ViewMode.list
-                    ? _ViewMode.grid
-                    : _ViewMode.list;
-                _swapMode = false;
-                _selectedMyEntry = null;
-              });
-              SessionManager.savePreferredViewMode(
-                'faculty',
-                _viewMode == _ViewMode.grid,
-              );
-            },
-          ),
-          if (_viewMode == _ViewMode.list)
-            IconButton(
-              icon: Icon(_swapMode ? Icons.close : Icons.swap_horiz),
-              tooltip: _swapMode ? 'Cancel Swap' : 'Start Swap Request',
-              onPressed: () {
-                setState(() {
-                  _swapMode = !_swapMode;
-                  _selectedMyEntry = null;
-                });
-              },
-            ),
-          IconButton(
-            icon: const Icon(
-              Icons.event_busy_rounded,
-              color: Colors.amberAccent,
-            ),
-            tooltip: 'Mark Future Absent',
-            onPressed: () {
-              showDialog(
-                context: context,
-                builder: (context) => FutureAbsentCalendarDialog(
-                  facultyId: widget.facultyId,
-                  facultyName: 'Faculty',
-                ),
-              );
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.flash_on, color: Colors.deepOrange),
-            tooltip: 'Mark Full-Day Leave & Auto-Allocate',
-            onPressed: _markFullDayLeaveAndAutoAllocate,
-          ),
-        ],
-        bottom: _viewMode == _ViewMode.list
-            ? TabBar(
-                controller: _tabController,
-                isScrollable: true,
-                tabs: _days.map((d) {
-                  final isToday = DateHelpers.isToday(d);
-                  return Tab(
-                    height: 52,
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          d,
-                          style: TextStyle(
-                            fontWeight: isToday
-                                ? FontWeight.bold
-                                : FontWeight.normal,
-                          ),
-                        ),
-                        Text(
-                          DateHelpers.labelForDayCode(d),
-                          style: TextStyle(
-                            fontSize: 10,
-                            color: isToday ? Colors.blue : Colors.black54,
-                            fontWeight: isToday
-                                ? FontWeight.bold
-                                : FontWeight.normal,
-                          ),
-                        ),
-                      ],
+        bottom: TabBar(
+          controller: _tabController,
+          isScrollable: true,
+          tabs: _days.map((d) {
+            final isToday = DateHelpers.isToday(d);
+            return Tab(
+              height: 52,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    d,
+                    style: TextStyle(
+                      fontWeight: isToday ? FontWeight.bold : FontWeight.normal,
                     ),
-                  );
-                }).toList(),
-              )
-            : null,
+                  ),
+                  Text(
+                    DateHelpers.labelForDayCode(d),
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: isToday ? Colors.blue : Colors.black54,
+                      fontWeight: isToday ? FontWeight.bold : FontWeight.normal,
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }).toList(),
+        ),
       ),
-      body: _viewMode == _ViewMode.list
-          ? _buildListView()
-          : Padding(
-              padding: const EdgeInsets.all(12.0),
-              child: WeeklyMatrixGridWidget(
-                key: _matrixKey,
-                classId: widget.classId,
-                className: widget.className,
-                userRole: widget.isCC ? 'cc' : 'faculty',
-                currentFacultyId: widget.facultyId,
+      body: Column(
+        children: [
+          if (_swapMode)
+            Container(
+              width: double.infinity,
+              color: Colors.blue.shade50,
+              padding: const EdgeInsets.all(12),
+              child: Text(
+                _selectedMyEntry == null
+                    ? 'Tap YOUR period to give up'
+                    : 'Now tap the period you want instead',
+                style: const TextStyle(fontWeight: FontWeight.bold),
               ),
             ),
+          Expanded(
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : TabBarView(
+                    controller: _tabController,
+                    children: _days.map((day) {
+                      final dateStr = DateHelpers.isoForDayCode(day);
+                      final holidayInfo = _holidayMap[dateStr] as Map?;
+                      final holidayReason = holidayInfo?['reason'];
+                      final holidayId = holidayInfo?['holiday_id'];
+
+                      final dayEntries =
+                          _entries
+                              .where((e) => e['day_of_week'] == day)
+                              .toList()
+                            ..sort(
+                              (a, b) =>
+                                  a['period_no'].compareTo(b['period_no']),
+                            );
+
+                      Widget? holidayBanner;
+                      if (holidayReason != null) {
+                        holidayBanner = Container(
+                          width: double.infinity,
+                          color: Colors.orange.shade50,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 10,
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(
+                                Icons.beach_access,
+                                size: 18,
+                                color: Colors.orange,
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'Marked as a holiday'
+                                  '${holidayReason.toString().isEmpty ? '' : ': $holidayReason'}. '
+                                  'Students and teaching faculty won\'t see this day\'s schedule.',
+                                  style: const TextStyle(fontSize: 12),
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      }
+
+                      if (dayEntries.isEmpty) {
+                        final isSunday = day == 'SUN';
+                        return Column(
+                          children: [
+                            if (holidayBanner != null) holidayBanner,
+                            Expanded(
+                              child: Center(
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    if (isSunday) ...[
+                                      const Icon(
+                                        Icons.weekend,
+                                        size: 40,
+                                        color: Colors.grey,
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        widget.isCC
+                                            ? 'Sunday is usually a holiday.'
+                                            : 'Sunday - Holiday',
+                                        style: const TextStyle(
+                                          color: Colors.black54,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 12),
+                                    ] else if (!widget.isCC) ...[
+                                      const Icon(
+                                        Icons.event_busy,
+                                        size: 40,
+                                        color: Colors.grey,
+                                      ),
+                                      const SizedBox(height: 8),
+                                      const Text(
+                                        'No schedule set for this day yet.',
+                                        style: TextStyle(color: Colors.black54),
+                                      ),
+                                    ],
+                                    // Only CC can build the schedule from
+                                    // here - teaching faculty using this
+                                    // screen just to swap don't get this.
+                                    if (widget.isCC) ...[
+                                      ElevatedButton.icon(
+                                        icon: const Icon(Icons.add_chart),
+                                        label: Text(
+                                          isSunday
+                                              ? 'Add Schedule Anyway'
+                                              : 'Make Schedule',
+                                        ),
+                                        onPressed: () async {
+                                          final result = await Navigator.push(
+                                            context,
+                                            MaterialPageRoute(
+                                              builder: (context) =>
+                                                  ScheduleBuilderScreen(
+                                                    classId: widget.classId,
+                                                    className: widget.className,
+                                                    dayOfWeek: day,
+                                                  ),
+                                            ),
+                                          );
+                                          if (result == true) {
+                                            _fetchTimetable();
+                                          }
+                                        },
+                                      ),
+                                      const SizedBox(height: 12),
+                                      if (holidayId != null)
+                                        OutlinedButton.icon(
+                                          icon: const Icon(
+                                            Icons.wb_sunny,
+                                            size: 18,
+                                          ),
+                                          label: const Text('Remove Holiday'),
+                                          onPressed: () =>
+                                              _confirmUnmarkHoliday(
+                                                holidayId as int,
+                                                day,
+                                              ),
+                                        )
+                                      else
+                                        OutlinedButton.icon(
+                                          icon: const Icon(
+                                            Icons.beach_access,
+                                            size: 18,
+                                          ),
+                                          label: const Text('Mark Holiday'),
+                                          onPressed: () =>
+                                              _confirmMarkHoliday(day),
+                                        ),
+                                    ],
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        );
+                      }
+
+                      return Column(
+                        children: [
+                          if (holidayBanner != null) holidayBanner,
+                          if (widget.isCC)
+                            Padding(
+                              padding: const EdgeInsets.all(8),
+                              child: Align(
+                                alignment: Alignment.centerRight,
+                                child: holidayId != null
+                                    ? TextButton.icon(
+                                        icon: const Icon(
+                                          Icons.wb_sunny,
+                                          color: Colors.orange,
+                                        ),
+                                        label: const Text(
+                                          'Remove Holiday',
+                                          style: TextStyle(
+                                            color: Colors.orange,
+                                          ),
+                                        ),
+                                        onPressed: () => _confirmUnmarkHoliday(
+                                          holidayId as int,
+                                          day,
+                                        ),
+                                      )
+                                    : TextButton.icon(
+                                        icon: const Icon(
+                                          Icons.beach_access,
+                                          color: Colors.orange,
+                                        ),
+                                        label: const Text(
+                                          'Mark Holiday',
+                                          style: TextStyle(
+                                            color: Colors.orange,
+                                          ),
+                                        ),
+                                        onPressed: () =>
+                                            _confirmMarkHoliday(day),
+                                      ),
+                              ),
+                            ),
+                          Expanded(
+                            child: ListView.builder(
+                              padding: const EdgeInsets.all(16),
+                              itemCount: dayEntries.length,
+                              itemBuilder: (context, index) {
+                                final entry = dayEntries[index];
+                                final tappable = _isTappable(entry);
+                                final isSwapped =
+                                    entry['status_color'] == 'swapped';
+                                return Opacity(
+                                  opacity:
+                                      _swapMode &&
+                                          !tappable &&
+                                          _selectedMyEntry != entry
+                                      ? 0.4
+                                      : 1.0,
+                                  child: Card(
+                                    color: _colorForEntry(entry),
+                                    child: Stack(
+                                      children: [
+                                        ListTile(
+                                          title: Text(
+                                            'Period ${entry['period_no']}',
+                                          ),
+                                          subtitle: Text(
+                                            '${entry['course_name'] ?? 'Unassigned'} • '
+                                            '${entry['faculty_name'] ?? 'No faculty'}',
+                                          ),
+                                          onTap: tappable
+                                              ? () => _onEntryTap(entry)
+                                              : null,
+                                        ),
+                                        if (isSwapped)
+                                          Positioned(
+                                            top: 6,
+                                            right: 6,
+                                            child: Tooltip(
+                                              message: entry['swap_id'] != null
+                                                  ? 'Swapped period (pair #${entry['swap_id']})'
+                                                  : 'Swapped period',
+                                              child: Container(
+                                                padding: const EdgeInsets.all(
+                                                  4,
+                                                ),
+                                                decoration: BoxDecoration(
+                                                  color:
+                                                      entry['swap_id'] != null
+                                                      ? Color.alphaBlend(
+                                                          Colors.black26,
+                                                          _colorForSwapId(
+                                                            entry['swap_id']
+                                                                as int,
+                                                          ),
+                                                        )
+                                                      : Colors.blue.shade700,
+                                                  shape: BoxShape.circle,
+                                                ),
+                                                child: const Icon(
+                                                  Icons.swap_horiz,
+                                                  size: 14,
+                                                  color: Colors.white,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                      ],
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                        ],
+                      );
+                    }).toList(),
+                  ),
+          ),
+        ],
+      ),
     );
   }
 }
-
-

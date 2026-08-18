@@ -13,7 +13,6 @@ import 'session_manager.dart';
 import 'main.dart';
 import 'notification_bell.dart';
 import 'swap_inbox_icon.dart';
-import 'class_info_dialog.dart';
 
 class FacultyDashboardScreen extends StatefulWidget {
   final int facultyId;
@@ -67,118 +66,6 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
       }
     } catch (e) {
       setState(() => _isLoading = false);
-    }
-  }
-
-  /// Opens a pre-filled edit dialog for a class's year/section/department.
-  /// Only reachable from a CC's own class row, and the backend
-  /// double-checks that widget.facultyId is actually that class's CC
-  /// before allowing the update.
-  void _showEditClassDialog(dynamic cls) {
-    final yearController = TextEditingController(text: cls['year']);
-    final sectionController = TextEditingController(text: cls['section']);
-    final departmentController = TextEditingController(text: cls['department']);
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Edit Class'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: yearController,
-              decoration: const InputDecoration(
-                labelText: 'Year (e.g. 2nd Year)',
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: sectionController,
-              decoration: const InputDecoration(labelText: 'Section (e.g. A)'),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: departmentController,
-              decoration: const InputDecoration(
-                labelText: 'Department (e.g. AIML)',
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              await _updateClass(
-                cls['class_id'],
-                yearController.text,
-                sectionController.text,
-                departmentController.text,
-              );
-              if (mounted) Navigator.pop(context);
-            },
-            child: const Text('Save'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _updateClass(
-    int classId,
-    String year,
-    String section,
-    String department,
-  ) async {
-    if (year.trim().isEmpty ||
-        section.trim().isEmpty ||
-        department.trim().isEmpty) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Please fill in all fields.')),
-        );
-      }
-      return;
-    }
-
-    final url = Uri.parse('http://127.0.0.1:5000/update_class');
-    try {
-      final response = await http.post(
-        url,
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'class_id': classId,
-          'year': year,
-          'section': section,
-          'department': department,
-          'faculty_id': widget.facultyId,
-        }),
-      );
-      final data = jsonDecode(response.body);
-      if (response.statusCode == 200) {
-        _fetchRelatedClasses();
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(data['message'] ?? 'Class updated!')),
-          );
-        }
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(data['error'] ?? 'Could not update class.')),
-          );
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not connect to server.')),
-        );
-      }
     }
   }
 
@@ -303,72 +190,58 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
                               '${cls['year']} - Section ${cls['section']}',
                             ),
                             subtitle: Text(cls['department']),
-                            trailing: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                IconButton(
-                                  icon: const Icon(Icons.info_outline),
-                                  tooltip: 'Class Details',
-                                  onPressed: () => showClassInfoDialog(
-                                    context,
-                                    classId: cls['class_id'],
-                                    className: className,
-                                    canEdit: isMyCC,
-                                  ),
-                                ),
-                                if (isMyCC) ...[
-                                  const Chip(label: Text('CC')),
-                                  IconButton(
-                                    icon: const Icon(Icons.edit),
-                                    tooltip: 'Edit Class',
-                                    // Only shown on this CC's own class —
-                                    // not on classes they merely teach a
-                                    // course in, and never on classes
-                                    // they're unrelated to.
-                                    onPressed: () => _showEditClassDialog(cls),
-                                  ),
-                                  IconButton(
-                                    icon: const Icon(Icons.menu_book),
-                                    tooltip: 'Manage Courses',
-                                    onPressed: () => Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                        builder: (context) =>
-                                            ClassCoursesScreen(
-                                              classId: cls['class_id'],
-                                              className: className,
-                                              collegeId: widget.collegeId,
-                                              selfFacultyId: widget.facultyId,
-                                            ),
+                            trailing: isMyCC
+                                // CC gets real management actions, not just a label
+                                ? Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Chip(label: Text('CC')),
+                                      IconButton(
+                                        icon: const Icon(Icons.menu_book),
+                                        tooltip: 'Manage Courses',
+                                        onPressed: () => Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (context) =>
+                                                ClassCoursesScreen(
+                                                  classId: cls['class_id'],
+                                                  className: className,
+                                                  collegeId: widget.collegeId,
+                                                ),
+                                          ),
+                                        ),
                                       ),
-                                    ),
-                                  ),
-                                  IconButton(
-                                    icon: const Icon(Icons.edit_calendar),
-                                    tooltip: 'Build Timetable',
-                                    onPressed: () => Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                        builder: (context) =>
-                                            TimetableGridScreen(
-                                              classId: cls['class_id'],
-                                              className: className,
-                                              facultyId: widget.facultyId,
-                                              isCC: true,
-                                            ),
+                                      IconButton(
+                                        icon: const Icon(Icons.edit_calendar),
+                                        tooltip: 'Build Timetable',
+                                        onPressed: () => Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (context) =>
+                                                TimetableGridScreen(
+                                                  classId: cls['class_id'],
+                                                  className: className,
+                                                  facultyId: widget.facultyId,
+                                                  collegeId: widget.collegeId,
+                                                  isCC: true,
+                                                ),
+                                          ),
+                                        ),
                                       ),
-                                    ),
-                                  ),
-                                ] else
-                                  const Chip(label: Text('Teaching')),
-                              ],
-                            ),
+                                    ],
+                                  )
+                                : const Chip(label: Text('Teaching')),
+                            // CC gets the full editable view (Make Schedule,
+                            // edit/delete slots). Teaching-only faculty see
+                            // the exact same layout with all edit controls
+                            // hidden.
                             onTap: () => Navigator.push(
                               context,
                               MaterialPageRoute(
                                 builder: (context) => AdminTimetableViewScreen(
                                   classId: cls['class_id'],
                                   className: className,
+                                  collegeId: widget.collegeId,
                                   isReadOnly: !isMyCC,
                                 ),
                               ),

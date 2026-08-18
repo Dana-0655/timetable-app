@@ -107,6 +107,7 @@ class _BrowseTimetablesScreenState extends State<BrowseTimetablesScreen> {
                             classId: cls['class_id'],
                             className: className,
                             facultyId: widget.facultyId,
+                            collegeId: widget.collegeId,
                             isCC: isCC,
                           ),
                         ),
