@@ -109,8 +109,8 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
             ),
           ),
           IconButton(
-            icon: const Icon(Icons.calendar_view_week),
-            tooltip: 'Browse Timetables / Swap',
+            icon: const Icon(Icons.search),
+            tooltip: 'Browse Timetables',
             onPressed: () => Navigator.push(
               context,
               MaterialPageRoute(

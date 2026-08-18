@@ -1,12 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'fill_slot_screen.dart';
+import 'schedule_builder_screen.dart';
 
 class WeeklyMatrixGridWidget extends StatefulWidget {
   final int classId;
   final String className;
   final String userRole;
   final int currentFacultyId;
+  final bool canEdit;
+  final VoidCallback? onTimetableChanged;
 
   const WeeklyMatrixGridWidget({
     super.key,
@@ -14,6 +18,8 @@ class WeeklyMatrixGridWidget extends StatefulWidget {
     required this.className,
     required this.userRole,
     required this.currentFacultyId,
+    this.canEdit = true,
+    this.onTimetableChanged,
   });
 
   @override
@@ -25,17 +31,15 @@ class _WeeklyMatrixGridWidgetState extends State<WeeklyMatrixGridWidget> {
   List<dynamic> _entries = [];
   final List<String> _days = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
 
-  // Same fixed palette as the list-view timetable grid, so a swapped pair
-  // gets the exact same distinct color whether viewed as a list or a matrix.
   static const List<Color> _swapPalette = [
-    Color(0xFFB3E5FC), // light blue
-    Color(0xFFC8E6C9), // light green
-    Color(0xFFFFF9C4), // light yellow
-    Color(0xFFF8BBD0), // light pink
-    Color(0xFFD1C4E9), // light purple
-    Color(0xFFFFCCBC), // light orange
-    Color(0xFFB2DFDB), // teal
-    Color(0xFFDCEDC8), // lime
+    Color(0xFFB3E5FC),
+    Color(0xFFC8E6C9),
+    Color(0xFFFFF9C4),
+    Color(0xFFF8BBD0),
+    Color(0xFFD1C4E9),
+    Color(0xFFFFCCBC),
+    Color(0xFFB2DFDB),
+    Color(0xFFDCEDC8),
   ];
 
   static const List<Color> _swapBorderPalette = [
@@ -49,9 +53,6 @@ class _WeeklyMatrixGridWidgetState extends State<WeeklyMatrixGridWidget> {
     Color(0xFFC5E1A5),
   ];
 
-  // Assigns palette colors in the order distinct swap_ids are first seen,
-  // instead of hashing the raw id — avoids two unrelated swaps colliding
-  // on the same color just because (idA % 8 == idB % 8).
   final Map<int, int> _swapColorIndex = {};
 
   int _colorIndexForSwap(int swapId) {
@@ -94,41 +95,81 @@ class _WeeklyMatrixGridWidgetState extends State<WeeklyMatrixGridWidget> {
     }
   }
 
-  Color _getCellColor(dynamic entry) {
+  Color _getCellColor(dynamic entry, bool isMySubject) {
     if (entry == null) return Colors.grey.shade50;
     if (entry['entry_type'] == 'break') return Colors.amber.shade50;
+    if (isMySubject) return const Color(0xFFE8F5E9);
+
     final statusColor = entry['status_color'];
     switch (statusColor) {
       case 'open_leave':
-        // Absent/unfilled slot — needs to read as clearly red, not a
-        // barely-there tint.
         return Colors.red.shade100;
       case 'confirmed_cover':
-        return Colors.green.shade50;
+        return Colors.green.shade100;
       case 'swapped':
         return entry['swap_id'] != null
             ? _swapFillColor(entry['swap_id'] as int)
             : Colors.blue.shade50;
       default:
-        return Colors.indigo.shade50;
+        return Colors.white;
     }
   }
 
-  Color _getBorderColor(dynamic entry) {
+  Color _getBorderColor(dynamic entry, bool isMySubject) {
     if (entry == null) return Colors.grey.shade300;
-    if (entry['entry_type'] == 'break') return Colors.amber.shade200;
+    if (entry['entry_type'] == 'break') return Colors.amber.shade300;
+    if (isMySubject) return Colors.green.shade400;
+
     final statusColor = entry['status_color'];
     switch (statusColor) {
       case 'open_leave':
         return Colors.red.shade400;
       case 'confirmed_cover':
-        return Colors.green.shade300;
+        return Colors.green.shade400;
       case 'swapped':
         return entry['swap_id'] != null
             ? _swapBorderColor(entry['swap_id'] as int)
             : Colors.blue.shade300;
       default:
-        return Colors.indigo.shade200;
+        return Colors.grey.shade300;
+    }
+  }
+
+  void _handleCellTap(dynamic entry, String day, int periodNo) {
+    if (!widget.canEdit) return;
+
+    if (entry != null && entry['entry_type'] != 'break') {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => FillSlotScreen(
+            entryId: entry['entry_id'],
+            entryType: entry['entry_type'] ?? 'class',
+            isEdit: true,
+            existingCourseName: entry['course_name'],
+            existingLabel: entry['label'],
+            existingStartTime: entry['start_time'],
+            existingEndTime: entry['end_time'],
+          ),
+        ),
+      ).then((val) {
+        _fetchTimetable();
+        widget.onTimetableChanged?.call();
+      });
+    } else if (entry == null) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => ScheduleBuilderScreen(
+            classId: widget.classId,
+            className: widget.className,
+            dayOfWeek: day,
+          ),
+        ),
+      ).then((val) {
+        _fetchTimetable();
+        widget.onTimetableChanged?.call();
+      });
     }
   }
 
@@ -147,7 +188,6 @@ class _WeeklyMatrixGridWidgetState extends State<WeeklyMatrixGridWidget> {
       );
     }
 
-    // Determine max period number present
     int maxPeriod = 1;
     for (var e in _entries) {
       final p = e['period_no'];
@@ -170,11 +210,10 @@ class _WeeklyMatrixGridWidgetState extends State<WeeklyMatrixGridWidget> {
               borderRadius: BorderRadius.circular(8),
             ),
             children: [
-              // Header Row: Day / Period 1 / Period 2 ...
               TableRow(
-                decoration: BoxDecoration(
-                  color: Colors.blueGrey.shade800,
-                  borderRadius: const BorderRadius.vertical(
+                decoration: const BoxDecoration(
+                  color: Color(0xFF1E293B),
+                  borderRadius: BorderRadius.vertical(
                     top: Radius.circular(7),
                   ),
                 ),
@@ -183,7 +222,7 @@ class _WeeklyMatrixGridWidgetState extends State<WeeklyMatrixGridWidget> {
                     padding: const EdgeInsets.all(10),
                     alignment: Alignment.center,
                     child: const Text(
-                      'DAY / PERIOD',
+                      'Day',
                       style: TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.bold,
@@ -196,7 +235,7 @@ class _WeeklyMatrixGridWidgetState extends State<WeeklyMatrixGridWidget> {
                       padding: const EdgeInsets.all(10),
                       alignment: Alignment.center,
                       child: Text(
-                        'P$p',
+                        'Period $p',
                         style: const TextStyle(
                           color: Colors.white,
                           fontWeight: FontWeight.bold,
@@ -207,27 +246,24 @@ class _WeeklyMatrixGridWidgetState extends State<WeeklyMatrixGridWidget> {
                 ],
               ),
 
-              // Data Rows for each day
               for (String day in _days)
                 TableRow(
                   children: [
-                    // Day label cell
                     Container(
-                      height: 80,
+                      height: 90,
                       padding: const EdgeInsets.all(8),
                       alignment: Alignment.center,
-                      color: Colors.blueGrey.shade50,
+                      color: Colors.indigo.shade50.withOpacity(0.4),
                       child: Text(
                         day,
                         style: const TextStyle(
                           fontWeight: FontWeight.bold,
                           fontSize: 13,
-                          color: Colors.black87,
+                          color: Color(0xFF1E293B),
                         ),
                       ),
                     ),
 
-                    // Period cells
                     for (int p = 1; p <= maxPeriod; p++) ...[
                       Builder(
                         builder: (context) {
@@ -238,110 +274,123 @@ class _WeeklyMatrixGridWidgetState extends State<WeeklyMatrixGridWidget> {
                           );
 
                           if (entry == null) {
-                            return Container(
-                              height: 80,
-                              color: Colors.grey.shade50,
-                              alignment: Alignment.center,
-                              child: const Text(
-                                '-',
-                                style: TextStyle(color: Colors.grey),
+                            return InkWell(
+                              onTap: () => _handleCellTap(null, day, p),
+                              child: Container(
+                                height: 90,
+                                color: Colors.grey.shade50,
+                                alignment: Alignment.center,
+                                child: Text(
+                                  widget.canEdit ? 'Free Period\n(Tap to add)' : 'Free Period',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.grey.shade500,
+                                  ),
+                                ),
                               ),
                             );
                           }
 
                           final isBreak = entry['entry_type'] == 'break';
-                          final isOpenLeave =
-                              entry['status_color'] == 'open_leave';
+                          final isOpenLeave = entry['status_color'] == 'open_leave';
                           final isSwapped = entry['status_color'] == 'swapped';
+                          final isMySubject = widget.currentFacultyId > 0 &&
+                              entry['faculty_id'] == widget.currentFacultyId;
+
                           final title = isBreak
                               ? (entry['label'] ?? 'BREAK')
-                              : (entry['course_name'] ?? 'Unassigned');
+                              : (entry['course_name'] ?? 'Free Period');
                           final faculty = entry['faculty_name'] ?? '';
-                          final startTime = entry['start_time'] ?? '';
-                          final endTime = entry['end_time'] ?? '';
+                          final room = entry['room_number'] ?? '';
 
-                          return Container(
-                            height: 80,
-                            padding: const EdgeInsets.all(6),
-                            decoration: BoxDecoration(
-                              color: _getCellColor(entry),
-                              border: Border.all(
-                                color: _getBorderColor(entry),
-                                width: isOpenLeave || isSwapped ? 1.5 : 0.5,
+                          return InkWell(
+                            onTap: () => _handleCellTap(entry, day, p),
+                            child: Container(
+                              height: 90,
+                              padding: const EdgeInsets.all(6),
+                              decoration: BoxDecoration(
+                                color: _getCellColor(entry, isMySubject),
+                                border: Border.all(
+                                  color: _getBorderColor(entry, isMySubject),
+                                  width: isMySubject || isOpenLeave || isSwapped ? 1.8 : 0.8,
+                                ),
+                                borderRadius: BorderRadius.circular(4),
                               ),
-                            ),
-                            child: Stack(
-                              children: [
-                                Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  crossAxisAlignment: CrossAxisAlignment.center,
-                                  children: [
-                                    Text(
-                                      title,
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                      textAlign: TextAlign.center,
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 11,
-                                        color: isBreak
-                                            ? Colors.amber.shade900
-                                            : isOpenLeave
-                                            ? Colors.red.shade900
-                                            : Colors.black87,
-                                      ),
-                                    ),
-                                    if (isOpenLeave) ...[
-                                      const SizedBox(height: 2),
+                              child: Stack(
+                                children: [
+                                  Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    crossAxisAlignment: CrossAxisAlignment.center,
+                                    children: [
                                       Text(
-                                        'ABSENT',
-                                        style: TextStyle(
-                                          fontSize: 9,
-                                          fontWeight: FontWeight.bold,
-                                          color: Colors.red.shade700,
-                                        ),
-                                      ),
-                                    ] else if (faculty.isNotEmpty &&
-                                        !isBreak) ...[
-                                      const SizedBox(height: 2),
-                                      Text(
-                                        faculty,
-                                        maxLines: 1,
+                                        title.toUpperCase(),
+                                        maxLines: 2,
                                         overflow: TextOverflow.ellipsis,
                                         textAlign: TextAlign.center,
-                                        style: const TextStyle(
-                                          fontSize: 10,
-                                          color: Colors.black54,
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 11,
+                                          color: isBreak
+                                              ? Colors.amber.shade900
+                                              : isOpenLeave
+                                                  ? Colors.red.shade900
+                                                  : (isMySubject
+                                                      ? Colors.green.shade900
+                                                      : Colors.black87),
                                         ),
                                       ),
-                                    ],
-                                    if (startTime.isNotEmpty) ...[
-                                      const SizedBox(height: 2),
-                                      Text(
-                                        '$startTime - $endTime',
-                                        style: const TextStyle(
-                                          fontSize: 9,
-                                          color: Colors.black45,
+                                      if (isOpenLeave) ...[
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          'ABSENT',
+                                          style: TextStyle(
+                                            fontSize: 9,
+                                            fontWeight: FontWeight.bold,
+                                            color: Colors.red.shade700,
+                                          ),
                                         ),
-                                      ),
+                                      ] else if (faculty.isNotEmpty && !isBreak) ...[
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          faculty,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          textAlign: TextAlign.center,
+                                          style: const TextStyle(
+                                            fontSize: 10,
+                                            color: Colors.black54,
+                                          ),
+                                        ),
+                                      ],
+                                      if (room.isNotEmpty && !isBreak) ...[
+                                        const SizedBox(height: 3),
+                                        Row(
+                                          mainAxisAlignment: MainAxisAlignment.center,
+                                          children: [
+                                            const Icon(Icons.meeting_room, size: 10, color: Colors.grey),
+                                            const SizedBox(width: 2),
+                                            Text(
+                                              'Room: $room',
+                                              style: TextStyle(
+                                                fontSize: 9,
+                                                color: Colors.grey.shade700,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ],
                                     ],
-                                  ],
-                                ),
-                                if (isSwapped)
-                                  Positioned(
-                                    top: 0,
-                                    right: 0,
-                                    child: Tooltip(
-                                      message: entry['swap_id'] != null
-                                          ? 'Swapped period (pair #${entry['swap_id']})'
-                                          : 'Swapped period',
+                                  ),
+                                  if (isSwapped)
+                                    Positioned(
+                                      top: 0,
+                                      right: 0,
                                       child: Container(
                                         padding: const EdgeInsets.all(2),
                                         decoration: BoxDecoration(
                                           color: entry['swap_id'] != null
-                                              ? _swapBorderColor(
-                                                  entry['swap_id'] as int,
-                                                )
+                                              ? _swapBorderColor(entry['swap_id'] as int)
                                               : Colors.blue.shade700,
                                           shape: BoxShape.circle,
                                         ),
@@ -352,8 +401,8 @@ class _WeeklyMatrixGridWidgetState extends State<WeeklyMatrixGridWidget> {
                                         ),
                                       ),
                                     ),
-                                  ),
-                              ],
+                                ],
+                              ),
                             ),
                           );
                         },
