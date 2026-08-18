@@ -4,6 +4,8 @@ import 'dart:convert';
 import 'dart:async';
 import 'date_helpers.dart';
 import 'class_info_dialog.dart';
+import 'weekly_matrix_grid_widget.dart';
+import 'session_manager.dart';
 
 class StudentTimetableScreen extends StatefulWidget {
   final int classId;
@@ -24,14 +26,14 @@ class _StudentTimetableScreenState extends State<StudentTimetableScreen>
   List<dynamic> _entries = [];
   List<dynamic> _updates = [];
   bool _isLoading = true;
+  bool _is2DView = false;
   String? _errorMessage;
+
   Timer? _refreshTimer;
 
   final List<String> _days = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
   late final TabController _tabController;
 
-  // Same fixed palette as the faculty/admin timetable grid, so a swapped
-  // pair looks identical no matter which role is viewing it.
   static const List<Color> _swapPalette = [
     Color(0xFFB3E5FC), // light blue
     Color(0xFFC8E6C9), // light green
@@ -59,6 +61,7 @@ class _StudentTimetableScreenState extends State<StudentTimetableScreen>
       vsync: this,
     );
 
+    _loadSavedViewMode();
     _fetchTimetable();
     _fetchUpdates();
     _refreshTimer = Timer.periodic(const Duration(seconds: 15), (timer) {
@@ -66,6 +69,16 @@ class _StudentTimetableScreenState extends State<StudentTimetableScreen>
       _fetchUpdates();
     });
   }
+
+  Future<void> _loadSavedViewMode() async {
+    final saved2D = await SessionManager.getPreferredViewMode('student');
+    if (mounted) {
+      setState(() {
+        _is2DView = saved2D;
+      });
+    }
+  }
+
 
   @override
   void dispose() {
@@ -376,36 +389,49 @@ class _StudentTimetableScreenState extends State<StudentTimetableScreen>
           style: const TextStyle(fontWeight: FontWeight.bold),
         ),
         centerTitle: true,
-        bottom: TabBar(
-          controller: _tabController,
-          isScrollable: true,
-          tabs: _days.map((d) {
-            final isToday = DateHelpers.isToday(d);
-            return Tab(
-              height: 52,
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    d,
-                    style: TextStyle(
-                      fontWeight: isToday ? FontWeight.bold : FontWeight.normal,
+        bottom: _is2DView
+            ? null
+            : TabBar(
+                controller: _tabController,
+                isScrollable: true,
+                tabs: _days.map((d) {
+                  final isToday = DateHelpers.isToday(d);
+                  return Tab(
+                    height: 52,
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          d,
+                          style: TextStyle(
+                            fontWeight: isToday ? FontWeight.bold : FontWeight.normal,
+                          ),
+                        ),
+                        Text(
+                          DateHelpers.labelForDayCode(d),
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: isToday ? Colors.blue : Colors.black54,
+                            fontWeight: isToday ? FontWeight.bold : FontWeight.normal,
+                          ),
+                        ),
+                      ],
                     ),
-                  ),
-                  Text(
-                    DateHelpers.labelForDayCode(d),
-                    style: TextStyle(
-                      fontSize: 10,
-                      color: isToday ? Colors.blue : Colors.black54,
-                      fontWeight: isToday ? FontWeight.bold : FontWeight.normal,
-                    ),
-                  ),
-                ],
+                  );
+                }).toList(),
               ),
-            );
-          }).toList(),
-        ),
         actions: [
+          IconButton(
+            icon: Icon(_is2DView ? Icons.view_agenda : Icons.grid_view),
+            tooltip: _is2DView ? 'Switch to Daily View' : 'Switch to 2D Matrix Grid',
+            onPressed: () {
+              setState(() {
+                _is2DView = !_is2DView;
+              });
+              SessionManager.savePreferredViewMode('student', _is2DView);
+            },
+
+          ),
           IconButton(
             icon: const Icon(Icons.info_outline),
             tooltip: 'Class Details',
@@ -452,7 +478,15 @@ class _StudentTimetableScreenState extends State<StudentTimetableScreen>
           ? const Center(child: CircularProgressIndicator())
           : _errorMessage != null
           ? Center(child: Text(_errorMessage!))
+          : _is2DView
+          ? WeeklyMatrixGridWidget(
+              classId: widget.classId,
+              className: widget.className,
+              userRole: 'student',
+              currentFacultyId: 0,
+            )
           : TabBarView(
+
               controller: _tabController,
               children: _days.map((day) {
                 final dayEntries =

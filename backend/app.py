@@ -1,5 +1,7 @@
 from flask_cors import CORS
 import os
+from dotenv import load_dotenv
+load_dotenv()
 # pyrefly: ignore [missing-import]
 from flask import Flask, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
@@ -10,8 +12,7 @@ from datetime import datetime, timedelta
 app = Flask(__name__)
 CORS(app)
 
-AIVEN_PASSWORD = os.getenv("AIVEN_PASSWORD")
-app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://avnadmin:${AIVEN_PASSWORD}@timetable-db-dhana1029384756-00ab.k.aivencloud.com:22672/timetable_db'
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL')
 app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {"connect_args": {"ssl": {"ca": "ca.pem"} }}
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
@@ -2112,14 +2113,16 @@ def delete_holiday():
     db.session.delete(holiday)
     db.session.commit()
     return jsonify({"message": "Holiday removed"})
-
 @app.route("/holidays_for_class_week/<int:class_id>", methods=["GET"])
 def get_holidays_for_class_week(class_id):
     class_obj = Class.query.get(class_id)
     if not class_obj:
         return jsonify({})
     holidays = Holiday.query.filter_by(college_id=class_obj.college_id).all()
-    return jsonify({h.holiday_date: (h.reason or "Holiday") for h in holidays})
+    return jsonify({
+        h.holiday_date: {"holiday_id": h.holiday_id, "reason": h.reason or ""}
+        for h in holidays
+    })
 
 if os.environ.get('WERKZEUG_RUN_MAIN') == 'true' or not app.debug:
     scheduler = BackgroundScheduler()

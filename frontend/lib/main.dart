@@ -7,6 +7,8 @@ import 'admin_dashboard_screen.dart';
 import 'faculty_dashboard_screen.dart';
 import 'create_college_screen.dart';
 import 'student_timetable_screen.dart';
+import 'admin_timetable_view_screen.dart';
+import 'timetable_grid_screen.dart';
 
 void main() {
   runApp(const MyApp());
@@ -68,6 +70,7 @@ class _SessionCheckerState extends State<SessionChecker> {
   }
 
   Future<void> _checkSession() async {
+    // 1. Student pinned to a class (no login)
     final defaultClass = await SessionManager.getDefaultClass();
     if (defaultClass != null) {
       if (!mounted) return;
@@ -83,38 +86,159 @@ class _SessionCheckerState extends State<SessionChecker> {
       return;
     }
 
+    // 2. Admin or faculty logged-in session
     final session = await SessionManager.getSession();
+    final lastPage = await SessionManager.getLastPage();
 
     if (!mounted) return;
 
-    if (session == null) {
+    if (session != null && session['role'] == 'admin') {
+      final adminDashboard = AdminDashboardScreen(
+        adminId: session['adminId'],
+        adminName: session['name'],
+        collegeId: session['collegeId'],
+      );
+
+      // Restore deep page if there is one
+      if (lastPage != null) {
+        final page = lastPage['page'];
+        if (page == 'admin_timetable_view') {
+          final classId = int.tryParse(lastPage['classId'] ?? '');
+          final className = lastPage['className'] ?? '';
+          final isReadOnly = lastPage['isReadOnly'] == 'true';
+          if (classId != null) {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (context) => adminDashboard),
+            );
+            // Push the deep page on top of the dashboard
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => AdminTimetableViewScreen(
+                  classId: classId,
+                  className: className,
+                  isReadOnly: isReadOnly,
+                ),
+              ),
+            );
+            return;
+          }
+        } else if (page == 'faculty_timetable') {
+          final classId = int.tryParse(lastPage['classId'] ?? '');
+          final className = lastPage['className'] ?? '';
+          final facultyId = int.tryParse(lastPage['facultyId'] ?? '');
+          final isCC = lastPage['isCC'] == 'true';
+          if (classId != null && facultyId != null) {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (context) => adminDashboard),
+            );
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => TimetableGridScreen(
+                  classId: classId,
+                  className: className,
+                  facultyId: facultyId,
+                  isCC: isCC,
+                ),
+              ),
+            );
+            return;
+          }
+        }
+      }
+
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (context) => const WelcomeScreen()),
+        MaterialPageRoute(builder: (context) => adminDashboard),
       );
-    } else if (session['role'] == 'admin') {
+      return;
+    } else if (session != null && session['role'] == 'faculty') {
+      final facultyDashboard = FacultyDashboardScreen(
+        facultyId: session['facultyId'],
+        facultyName: session['name'],
+        collegeId: session['collegeId'],
+      );
+
+      // Restore deep page if there is one
+      if (lastPage != null) {
+        final page = lastPage['page'];
+        if (page == 'faculty_timetable') {
+          final classId = int.tryParse(lastPage['classId'] ?? '');
+          final className = lastPage['className'] ?? '';
+          final facultyId = int.tryParse(lastPage['facultyId'] ?? '');
+          final isCC = lastPage['isCC'] == 'true';
+          if (classId != null && facultyId != null) {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (context) => facultyDashboard),
+            );
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => TimetableGridScreen(
+                  classId: classId,
+                  className: className,
+                  facultyId: facultyId,
+                  isCC: isCC,
+                ),
+              ),
+            );
+            return;
+          }
+        } else if (page == 'admin_timetable_view') {
+          final classId = int.tryParse(lastPage['classId'] ?? '');
+          final className = lastPage['className'] ?? '';
+          if (classId != null) {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (context) => facultyDashboard),
+            );
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => AdminTimetableViewScreen(
+                  classId: classId,
+                  className: className,
+                  isReadOnly: true,
+                ),
+              ),
+            );
+            return;
+          }
+        }
+      }
+
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(
-          builder: (context) => AdminDashboardScreen(
-            adminId: session['adminId'],
-            adminName: session['name'],
-            collegeId: session['collegeId'],
-          ),
-        ),
+        MaterialPageRoute(builder: (context) => facultyDashboard),
       );
-    } else if (session['role'] == 'faculty') {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (context) => FacultyDashboardScreen(
-            facultyId: session['facultyId'],
-            facultyName: session['name'],
-            collegeId: session['collegeId'],
-          ),
-        ),
-      );
+      return;
     }
+
+    // 3. No login but a college code was entered before — go back to role picker
+    final savedCode = await SessionManager.getSavedCollegeCode();
+    if (!mounted) return;
+    if (savedCode != null) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (context) => RoleSelectionScreen(
+            collegeCode: savedCode['code'],
+            collegeId: savedCode['collegeId'],
+          ),
+        ),
+      );
+      return;
+    }
+
+    // 4. Completely fresh — show welcome/college code screen
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (context) => const WelcomeScreen()),
+    );
   }
 
   @override
@@ -157,6 +281,9 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
+        // Persist the college code so reload brings user back here
+        await SessionManager.saveCollegeCode(code, data['college_id']);
+        if (!mounted) return;
         Navigator.push(
           context,
           MaterialPageRoute(

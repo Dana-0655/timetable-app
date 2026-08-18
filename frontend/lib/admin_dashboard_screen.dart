@@ -963,16 +963,25 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                             color: Colors.purple,
                           ),
                           label: Text('Your CC (other sem): $className'),
-                          onPressed: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => TimetableGridScreen(
-                                classId: c['class_id'],
-                                className: className,
-                                facultyId: _linkedFacultyId!,
+                          onPressed: () {
+                            SessionManager.saveLastPage({
+                              'page': 'faculty_timetable',
+                              'classId': '${c['class_id']}',
+                              'className': className,
+                              'facultyId': '$_linkedFacultyId',
+                              'isCC': 'true',
+                            });
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => TimetableGridScreen(
+                                  classId: c['class_id'],
+                                  className: className,
+                                  facultyId: _linkedFacultyId!,
+                                ),
                               ),
-                            ),
-                          ),
+                            );
+                          },
                         );
                       }).toList(),
                     ),
@@ -1110,16 +1119,25 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                                 IconButton(
                                   icon: const Icon(Icons.edit_calendar),
                                   tooltip: 'Build Timetable',
-                                  onPressed: () => Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (context) => TimetableGridScreen(
-                                        classId: cls['class_id'],
-                                        className: className,
-                                        facultyId: _linkedFacultyId!,
+                                  onPressed: () {
+                                    SessionManager.saveLastPage({
+                                      'page': 'faculty_timetable',
+                                      'classId': '${cls['class_id']}',
+                                      'className': className,
+                                      'facultyId': '$_linkedFacultyId',
+                                      'isCC': 'true',
+                                    });
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (context) => TimetableGridScreen(
+                                          classId: cls['class_id'],
+                                          className: className,
+                                          facultyId: _linkedFacultyId!,
+                                        ),
                                       ),
-                                    ),
-                                  ),
+                                    );
+                                  },
                                 ),
                               IconButton(
                                 icon: const Icon(Icons.edit),
@@ -1139,15 +1157,23 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                               ),
                             ],
                           ),
-                          onTap: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => AdminTimetableViewScreen(
-                                classId: cls['class_id'],
-                                className: className,
+                          onTap: () {
+                            SessionManager.saveLastPage({
+                              'page': 'admin_timetable_view',
+                              'classId': '${cls['class_id']}',
+                              'className': className,
+                              'isReadOnly': 'false',
+                            });
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => AdminTimetableViewScreen(
+                                  classId: cls['class_id'],
+                                  className: className,
+                                ),
                               ),
-                            ),
-                          ),
+                            );
+                          },
                         ),
                       );
                     },

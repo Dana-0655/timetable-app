@@ -3,6 +3,9 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'schedule_builder_screen.dart';
 import 'date_helpers.dart';
+import 'weekly_matrix_grid_widget.dart';
+import 'future_absent_calendar_dialog.dart';
+import 'session_manager.dart';
 
 class TimetableGridScreen extends StatefulWidget {
   final int classId;
@@ -22,16 +25,23 @@ class TimetableGridScreen extends StatefulWidget {
   State<TimetableGridScreen> createState() => _TimetableGridScreenState();
 }
 
+enum _ViewMode { list, grid }
+
 class _TimetableGridScreenState extends State<TimetableGridScreen>
     with SingleTickerProviderStateMixin {
   List<dynamic> _entries = [];
   bool _isLoading = true;
   bool _swapMode = false;
   dynamic _selectedMyEntry;
+  _ViewMode _viewMode = _ViewMode.list;
 
   final List<String> _days = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
   late final TabController _tabController;
   Map<String, dynamic> _holidayMap = {}; // "YYYY-MM-DD" -> reason
+
+  final GlobalKey _matrixKey = GlobalKey();
+
+
 
   @override
   void initState() {
@@ -44,8 +54,18 @@ class _TimetableGridScreenState extends State<TimetableGridScreen>
       initialIndex: initialIndex,
       vsync: this,
     );
+    _loadSavedViewMode();
     _fetchTimetable();
     _fetchHolidays();
+  }
+
+  Future<void> _loadSavedViewMode() async {
+    final saved2D = await SessionManager.getPreferredViewMode('faculty');
+    if (mounted) {
+      setState(() {
+        _viewMode = saved2D ? _ViewMode.grid : _ViewMode.list;
+      });
+    }
   }
 
   @override
@@ -336,6 +356,80 @@ class _TimetableGridScreenState extends State<TimetableGridScreen>
     }
   }
 
+  /// Friend's feature: mark leave for every class this faculty teaches
+  /// today, and let the backend's smart engine auto-pick substitutes.
+  Future<void> _markFullDayLeaveAndAutoAllocate() async {
+    final now = DateTime.now();
+    final dateStr =
+        '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+    final dayOfWeek = DateHelpers.weekDayCodes[now.weekday - 1];
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.event_busy, color: Colors.deepOrange),
+            SizedBox(width: 8),
+            Text('Mark Full-Day Leave'),
+          ],
+        ),
+        content: Text(
+          'Mark leave for ALL your classes today ($dateStr, $dayOfWeek)?\n\n'
+          '⚡ The Smart Engine will automatically find optimal substitute teachers for each period and notify students, covering faculty, and admins!',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.deepOrange),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Mark & Auto-Allocate'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    final url = Uri.parse('http://127.0.0.1:5000/auto_allocate_day_leave');
+    try {
+      final response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'faculty_id': widget.facultyId,
+          'leave_date': dateStr,
+          'day_of_week': dayOfWeek,
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        final res = jsonDecode(response.body);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('⚡ ${res["message"]}'),
+              backgroundColor: Colors.green.shade800,
+            ),
+          );
+        }
+        _fetchTimetable();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not connect to server.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
   String _timeRange(dynamic entry) {
     final start = entry['start_time'];
     final end = entry['end_time'];
@@ -500,6 +594,176 @@ class _TimetableGridScreenState extends State<TimetableGridScreen>
     );
   }
 
+  Widget _buildListView() {
+    return Column(
+      children: [
+        if (_swapMode)
+          Container(
+            width: double.infinity,
+            color: Colors.blue.shade50,
+            padding: const EdgeInsets.all(12),
+            child: Text(
+              _selectedMyEntry == null
+                  ? 'Tap YOUR period to give up'
+                  : 'Now tap the period you want instead',
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ),
+        Expanded(
+          child: _isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : TabBarView(
+                  controller: _tabController,
+                  children: _days.map((day) {
+                    final dateStr = DateHelpers.isoForDayCode(day);
+                    final holidayReason = _holidayMap[dateStr];
+
+                    final dayEntries =
+                        _entries.where((e) => e['day_of_week'] == day).toList()
+                          ..sort(
+                            (a, b) => a['period_no'].compareTo(b['period_no']),
+                          );
+
+                    // Only show the "tap red to assign" hint on a day
+                    // that actually has an open slot — not on every day
+                    // regardless of whether anything's absent.
+                    final hasOpenSlotToday = dayEntries.any(
+                      (e) => e['status_color'] == 'open_leave',
+                    );
+
+                    Widget? holidayBanner;
+                    if (holidayReason != null) {
+                      holidayBanner = Container(
+                        width: double.infinity,
+                        color: Colors.orange.shade50,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 10,
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.beach_access,
+                              size: 18,
+                              color: Colors.orange,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'Marked as a holiday'
+                                '${holidayReason.toString().isEmpty ? '' : ': $holidayReason'}. '
+                                'Students and teaching faculty won\'t see this day\'s schedule.',
+                                style: const TextStyle(fontSize: 12),
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }
+
+                    Widget? openSlotBanner;
+                    if (!_swapMode && widget.isCC && hasOpenSlotToday) {
+                      openSlotBanner = Container(
+                        width: double.infinity,
+                        color: Colors.red.shade50,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
+                        child: const Text(
+                          'Tap a red (open) period to assign a substitute',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      );
+                    }
+
+                    if (dayEntries.isEmpty) {
+                      final isSunday = day == 'SUN';
+                      return Column(
+                        children: [
+                          if (holidayBanner != null) holidayBanner,
+                          Expanded(
+                            child: Center(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  if (isSunday) ...[
+                                    const Icon(
+                                      Icons.weekend,
+                                      size: 40,
+                                      color: Colors.grey,
+                                    ),
+                                    const SizedBox(height: 8),
+                                    const Text(
+                                      'Sunday is usually a holiday.',
+                                      style: TextStyle(color: Colors.black54),
+                                    ),
+                                    const SizedBox(height: 12),
+                                  ],
+                                  ElevatedButton.icon(
+                                    icon: const Icon(Icons.add_chart),
+                                    label: Text(
+                                      isSunday
+                                          ? 'Add Schedule Anyway'
+                                          : 'Make Schedule',
+                                    ),
+                                    onPressed: () async {
+                                      final result = await Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (context) =>
+                                              ScheduleBuilderScreen(
+                                                classId: widget.classId,
+                                                className: widget.className,
+                                                dayOfWeek: day,
+                                              ),
+                                        ),
+                                      );
+                                      if (result == true) {
+                                        _fetchTimetable();
+                                      }
+                                    },
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      );
+                    }
+
+                    return Column(
+                      children: [
+                        if (holidayBanner != null) holidayBanner,
+                        if (openSlotBanner != null) openSlotBanner,
+                        Expanded(
+                          child: ListView.builder(
+                            padding: const EdgeInsets.all(16),
+                            itemCount: dayEntries.length,
+                            itemBuilder: (context, index) {
+                              final entry = dayEntries[index];
+                              final isBreak = entry['entry_type'] == 'break';
+                              return Padding(
+                                padding: const EdgeInsets.only(bottom: 4),
+                                child: isBreak
+                                    ? _buildBreakCard(entry)
+                                    : _buildPeriodCard(entry),
+                              );
+                            },
+                          ),
+                        ),
+                      ],
+                    );
+                  }).toList(),
+                ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -507,216 +771,109 @@ class _TimetableGridScreenState extends State<TimetableGridScreen>
         title: Text(widget.className),
         actions: [
           IconButton(
-            icon: Icon(_swapMode ? Icons.close : Icons.swap_horiz),
-            tooltip: _swapMode ? 'Cancel Swap' : 'Start Swap Request',
+            icon: Icon(
+              _viewMode == _ViewMode.list ? Icons.grid_view : Icons.view_agenda,
+            ),
+            tooltip: _viewMode == _ViewMode.list
+                ? 'Switch to Grid View'
+                : 'Switch to List View',
             onPressed: () {
               setState(() {
-                _swapMode = !_swapMode;
+                _viewMode = _viewMode == _ViewMode.list
+                    ? _ViewMode.grid
+                    : _ViewMode.list;
+                _swapMode = false;
                 _selectedMyEntry = null;
               });
+              SessionManager.savePreferredViewMode(
+                'faculty',
+                _viewMode == _ViewMode.grid,
+              );
             },
           ),
-        ],
-        bottom: TabBar(
-          controller: _tabController,
-          isScrollable: true,
-          tabs: _days.map((d) {
-            final isToday = DateHelpers.isToday(d);
-            return Tab(
-              height: 52,
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    d,
-                    style: TextStyle(
-                      fontWeight: isToday ? FontWeight.bold : FontWeight.normal,
-                    ),
-                  ),
-                  Text(
-                    DateHelpers.labelForDayCode(d),
-                    style: TextStyle(
-                      fontSize: 10,
-                      color: isToday ? Colors.blue : Colors.black54,
-                      fontWeight: isToday ? FontWeight.bold : FontWeight.normal,
-                    ),
-                  ),
-                ],
-              ),
-            );
-          }).toList(),
-        ),
-      ),
-      body: Column(
-        children: [
-          if (_swapMode)
-            Container(
-              width: double.infinity,
-              color: Colors.blue.shade50,
-              padding: const EdgeInsets.all(12),
-              child: Text(
-                _selectedMyEntry == null
-                    ? 'Tap YOUR period to give up'
-                    : 'Now tap the period you want instead',
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
+          if (_viewMode == _ViewMode.list)
+            IconButton(
+              icon: Icon(_swapMode ? Icons.close : Icons.swap_horiz),
+              tooltip: _swapMode ? 'Cancel Swap' : 'Start Swap Request',
+              onPressed: () {
+                setState(() {
+                  _swapMode = !_swapMode;
+                  _selectedMyEntry = null;
+                });
+              },
             ),
-          Expanded(
-            child: _isLoading
-                ? const Center(child: CircularProgressIndicator())
-                : TabBarView(
-                    controller: _tabController,
-                    children: _days.map((day) {
-                      final dateStr = DateHelpers.isoForDayCode(day);
-                      final holidayReason = _holidayMap[dateStr];
-
-                      final dayEntries =
-                          _entries
-                              .where((e) => e['day_of_week'] == day)
-                              .toList()
-                            ..sort(
-                              (a, b) =>
-                                  a['period_no'].compareTo(b['period_no']),
-                            );
-
-                      // Only show the "tap red to assign" hint on a day
-                      // that actually has an open slot — not on every day
-                      // regardless of whether anything's absent.
-                      final hasOpenSlotToday = dayEntries.any(
-                        (e) => e['status_color'] == 'open_leave',
-                      );
-
-                      Widget? holidayBanner;
-                      if (holidayReason != null) {
-                        holidayBanner = Container(
-                          width: double.infinity,
-                          color: Colors.orange.shade50,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 10,
-                          ),
-                          child: Row(
-                            children: [
-                              const Icon(
-                                Icons.beach_access,
-                                size: 18,
-                                color: Colors.orange,
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  'Marked as a holiday'
-                                  '${holidayReason.toString().isEmpty ? '' : ': $holidayReason'}. '
-                                  'Students and teaching faculty won\'t see this day\'s schedule.',
-                                  style: const TextStyle(fontSize: 12),
-                                ),
-                              ),
-                            ],
-                          ),
-                        );
-                      }
-
-                      Widget? openSlotBanner;
-                      if (!_swapMode && widget.isCC && hasOpenSlotToday) {
-                        openSlotBanner = Container(
-                          width: double.infinity,
-                          color: Colors.red.shade50,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 8,
-                          ),
-                          child: const Text(
-                            'Tap a red (open) period to assign a substitute',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        );
-                      }
-
-                      if (dayEntries.isEmpty) {
-                        final isSunday = day == 'SUN';
-                        return Column(
-                          children: [
-                            if (holidayBanner != null) holidayBanner,
-                            Expanded(
-                              child: Center(
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    if (isSunday) ...[
-                                      const Icon(
-                                        Icons.weekend,
-                                        size: 40,
-                                        color: Colors.grey,
-                                      ),
-                                      const SizedBox(height: 8),
-                                      const Text(
-                                        'Sunday is usually a holiday.',
-                                        style: TextStyle(color: Colors.black54),
-                                      ),
-                                      const SizedBox(height: 12),
-                                    ],
-                                    ElevatedButton.icon(
-                                      icon: const Icon(Icons.add_chart),
-                                      label: Text(
-                                        isSunday
-                                            ? 'Add Schedule Anyway'
-                                            : 'Make Schedule',
-                                      ),
-                                      onPressed: () async {
-                                        final result = await Navigator.push(
-                                          context,
-                                          MaterialPageRoute(
-                                            builder: (context) =>
-                                                ScheduleBuilderScreen(
-                                                  classId: widget.classId,
-                                                  className: widget.className,
-                                                  dayOfWeek: day,
-                                                ),
-                                          ),
-                                        );
-                                        if (result == true) {
-                                          _fetchTimetable();
-                                        }
-                                      },
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ],
-                        );
-                      }
-
-                      return Column(
-                        children: [
-                          if (holidayBanner != null) holidayBanner,
-                          if (openSlotBanner != null) openSlotBanner,
-                          Expanded(
-                            child: ListView.builder(
-                              padding: const EdgeInsets.all(16),
-                              itemCount: dayEntries.length,
-                              itemBuilder: (context, index) {
-                                final entry = dayEntries[index];
-                                final isBreak = entry['entry_type'] == 'break';
-                                return Padding(
-                                  padding: const EdgeInsets.only(bottom: 4),
-                                  child: isBreak
-                                      ? _buildBreakCard(entry)
-                                      : _buildPeriodCard(entry),
-                                );
-                              },
-                            ),
-                          ),
-                        ],
-                      );
-                    }).toList(),
-                  ),
+          IconButton(
+            icon: const Icon(
+              Icons.event_busy_rounded,
+              color: Colors.amberAccent,
+            ),
+            tooltip: 'Mark Future Absent',
+            onPressed: () {
+              showDialog(
+                context: context,
+                builder: (context) => FutureAbsentCalendarDialog(
+                  facultyId: widget.facultyId,
+                  facultyName: 'Faculty',
+                ),
+              );
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.flash_on, color: Colors.deepOrange),
+            tooltip: 'Mark Full-Day Leave & Auto-Allocate',
+            onPressed: _markFullDayLeaveAndAutoAllocate,
           ),
         ],
+        bottom: _viewMode == _ViewMode.list
+            ? TabBar(
+                controller: _tabController,
+                isScrollable: true,
+                tabs: _days.map((d) {
+                  final isToday = DateHelpers.isToday(d);
+                  return Tab(
+                    height: 52,
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          d,
+                          style: TextStyle(
+                            fontWeight: isToday
+                                ? FontWeight.bold
+                                : FontWeight.normal,
+                          ),
+                        ),
+                        Text(
+                          DateHelpers.labelForDayCode(d),
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: isToday ? Colors.blue : Colors.black54,
+                            fontWeight: isToday
+                                ? FontWeight.bold
+                                : FontWeight.normal,
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }).toList(),
+              )
+            : null,
       ),
+      body: _viewMode == _ViewMode.list
+          ? _buildListView()
+          : Padding(
+              padding: const EdgeInsets.all(12.0),
+              child: WeeklyMatrixGridWidget(
+                key: _matrixKey,
+                classId: widget.classId,
+                className: widget.className,
+                userRole: widget.isCC ? 'cc' : 'faculty',
+                currentFacultyId: widget.facultyId,
+              ),
+            ),
     );
   }
 }
+
+
