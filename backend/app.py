@@ -8,6 +8,7 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_bcrypt import Bcrypt
 from apscheduler.schedulers.background import BackgroundScheduler
 from datetime import datetime, timedelta
+from apscheduler.triggers.cron import CronTrigger
 
 app = Flask(__name__)
 CORS(app)
@@ -166,6 +167,24 @@ class UserNotification(db.Model):
     reference_id = db.Column(db.Integer, nullable=True)  # NEW: cc_request_id / cf_request_id / swap_id
     is_read = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, server_default=db.func.now())
+
+def reset_weekly_swaps():
+    with app.app_context():
+        active_swaps = SwapRequest.query.filter_by(status="accepted").all()
+        for swap in active_swaps:
+            requester_entry = TimetableEntry.query.get(swap.requester_entry_id)
+            target_entry = TimetableEntry.query.get(swap.target_entry_id)
+            if requester_entry and target_entry:
+                requester_entry.course_id, target_entry.course_id = (
+                    target_entry.course_id,
+                    requester_entry.course_id,
+                )
+                requester_entry.status_color = "normal"
+                target_entry.status_color = "normal"
+            db.session.delete(swap)
+
+        db.session.commit()
+        print(f"[WEEKLY RESET] Reverted {len(active_swaps)} swap(s) back to original schedule for the new week.")
 
 def create_notification(recipient_type, recipient_id, message, notif_type, reference_id=None):
     notif = UserNotification(
@@ -2114,6 +2133,7 @@ def delete_holiday():
     db.session.delete(holiday)
     db.session.commit()
     return jsonify({"message": "Holiday removed"})
+
 @app.route("/holidays_for_class_week/<int:class_id>", methods=["GET"])
 def get_holidays_for_class_week(class_id):
     class_obj = Class.query.get(class_id)
@@ -2129,6 +2149,13 @@ if os.environ.get('WERKZEUG_RUN_MAIN') == 'true' or not app.debug:
     scheduler = BackgroundScheduler()
     scheduler.add_job(check_pending_leaves, 'interval', minutes=1)
     scheduler.add_job(cleanup_expired_statuses, 'interval', hours=6)
+    scheduler.start()
+
+if os.environ.get('WERKZEUG_RUN_MAIN') == 'true' or not app.debug:
+    scheduler = BackgroundScheduler()
+    scheduler.add_job(check_pending_leaves, 'interval', minutes=1)
+    scheduler.add_job(cleanup_expired_statuses, 'interval', hours=6)
+    scheduler.add_job(reset_weekly_swaps, CronTrigger(day_of_week='mon', hour=0, minute=0))
     scheduler.start()
 
 if __name__ == "__main__":

@@ -489,93 +489,29 @@ class _AdminTimetableViewScreenState extends State<AdminTimetableViewScreen>
   }
 
   Widget _buildBreakCard(dynamic entry) {
-    final isFilled = entry['label'] != null;
     final timeRange = _timeRange(entry);
-
     return Card(
       color: Colors.grey.shade100,
-      child: InkWell(
-        onTap: widget.isReadOnly || isFilled
-            ? null
-            : () async {
-                final result = await Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => FillSlotScreen(
-                      entryId: entry['entry_id'],
-                      entryType: entry['entry_type'],
-                    ),
-                  ),
-                );
-                if (result == true) _fetchTimetable();
-              },
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-          child: Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (timeRange.isNotEmpty)
-                      Text(
-                        timeRange,
-                        style: const TextStyle(
-                          fontSize: 11,
-                          color: Colors.black54,
-                        ),
-                      ),
-                    const SizedBox(height: 4),
-                    Text(
-                      entry['label'] ?? 'Break (tap to set up)',
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF212121),
-                      ),
-                    ),
-                  ],
-                ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (timeRange.isNotEmpty)
+              Text(
+                timeRange,
+                style: const TextStyle(fontSize: 11, color: Colors.black54),
               ),
-              if (!widget.isReadOnly)
-                if (isFilled)
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.edit, size: 20),
-                        onPressed: () async {
-                          final result = await Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => FillSlotScreen(
-                                entryId: entry['entry_id'],
-                                entryType: entry['entry_type'],
-                                isEdit: true,
-                                existingCourseName: entry['course_name'],
-                                existingLabel: entry['label'],
-                                existingStartTime: entry['start_time'],
-                                existingEndTime: entry['end_time'],
-                              ),
-                            ),
-                          );
-                          if (result == true) _fetchTimetable();
-                        },
-                      ),
-                      IconButton(
-                        icon: const Icon(
-                          Icons.delete,
-                          size: 20,
-                          color: Colors.red,
-                        ),
-                        onPressed: () => _confirmDeleteSlot(entry['entry_id']),
-                      ),
-                    ],
-                  )
-                else
-                  const Icon(Icons.edit, size: 20, color: Colors.black54),
-            ],
-          ),
+            const SizedBox(height: 4),
+            Text(
+              entry['label'] ?? 'Break',
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF212121),
+              ),
+            ),
+          ],
         ),
       ),
     );
