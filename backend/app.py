@@ -10,6 +10,23 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from datetime import datetime, timedelta
 from apscheduler.triggers.cron import CronTrigger
 
+import uuid
+import threading
+import io
+import pandas as pd
+from flask import request, jsonify, send_file
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from ortools.sat.python import cp_model
+from openpyxl.worksheet.datavalidation import DataValidation
+from ortools.sat.python import cp_model
+from flask import Flask, request, jsonify
+from solver import generate_timetable_with_ortools # Import your solver function
+import os
+import pandas as pd
+from flask import Flask, request, jsonify
+
+
 app = Flask(__name__)
 CORS(app)
 
@@ -168,6 +185,26 @@ class UserNotification(db.Model):
     is_read = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, server_default=db.func.now())
 
+# Model for tracking async background generation jobs
+class Job(db.Model):
+    __tablename__ = 'job'
+    job_id = db.Column(db.String(50), primary_key=True)
+    college_id = db.Column(db.Integer, nullable=True)
+    job_type = db.Column(db.String(50), nullable=True)
+    status = db.Column(db.String(20), default='pending')  # 'pending', 'running', 'success', 'failed'
+    progress_message = db.Column(db.String(255), nullable=True)
+    result = db.Column(db.JSON, nullable=True)
+    error = db.Column(db.Text, nullable=True)
+
+# Model for classroom / lab facilities
+class Room(db.Model):
+    __tablename__ = 'room'
+    room_id = db.Column(db.Integer, primary_key=True)
+    college_id = db.Column(db.Integer, db.ForeignKey('college.college_id'), nullable=False)
+    room_name = db.Column(db.String(100), nullable=False)
+    room_type = db.Column(db.String(50), default='Lecture')  # 'Lecture', 'Lab', etc.
+    capacity = db.Column(db.Integer, nullable=True)
+
 def reset_weekly_swaps():
     with app.app_context():
         active_swaps = SwapRequest.query.filter_by(status="accepted").all()
@@ -254,6 +291,704 @@ def get_or_create_faculty_for_admin(admin):
     db.session.add(faculty)
     db.session.commit()
     return faculty
+
+
+import pandas as pd # or openpyxl to read your uploaded excel file
+
+def run_timetable_solver(excel_file_path):
+    # 1. Read data from your 10-sheet Excel file
+    # Example: classes_df = pd.read_excel(excel_file_path, sheet_name='Classes')
+    # Example: courses_df = pd.read_excel(excel_file_path, sheet_name='Courses')
+
+    # 2. Create the model
+    model = cp_model.CpModel()
+
+    # 3. Define decision variables (e.g., assigning courses to time slots and rooms)
+    # ... your variable creation logic based on Excel data ...
+
+    # 4. Add constraints (e.g., no room double booking, faculty availability)
+    # ... your constraint logic ...
+
+    # 5. Create the solver and solve the model
+    solver = cp_model.CpSolver()
+    status = solver.solve(model)
+
+    if status == cp_model.OPTIMAL or status == cp_model.FEASIBLE:
+        print("Solution found!")
+        # Extract schedule from solver and save to Aiven MySQL database
+        return True
+    else:
+        print("No solution found.")
+        return False
+
+# ===================================================================
+# 2. MULTI-SHEET EXCEL TEMPLATE DOWNLOAD ROUTE
+# ===================================================================
+@app.route('/download_timetable_template', methods=['GET'])
+def download_timetable_template():
+    wb = Workbook()
+    wb.remove(wb.active)  # Remove standard default sheet
+
+    # Structure mapping: Sheet Name -> Column List
+    sheets_structure = {
+        "Departments": [
+            "Department ID", "Department Name"
+        ],
+        "Classes": [
+            "Class ID", "Academic Year", "Department", "Section", "Semester"
+        ],
+        "Faculty": [
+            "Faculty ID", "Faculty Name", "Department", "Email"
+        ],
+        "Courses": [
+            "Course Code", "Course Name", "Department", "Semester",
+            "Course Type", "Hours Per Week", "Periods Per Session"
+        ],
+        "Faculty Allocation": [
+            "Faculty ID", "Course Code", "Class ID", "Hours Per Week"
+        ],
+        "Rooms": [
+            "Room ID", "Room Name", "Room Type", "Capacity"
+        ],
+        "Time Slots": [
+            "Day", "Period", "Start Time", "End Time"
+        ],
+        "Faculty Availability": [
+            "Faculty ID", "Day", "Period", "Availability"
+        ],
+        "Room Availability": [
+            "Room ID", "Day", "Period", "Availability"
+        ],
+        "Constraints": [
+            "Constraint Type", "Entity", "Day", "Period", "Value", "Priority"
+        ]
+    }
+
+    # Header styling constants
+    header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+    header_fill = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
+    header_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    thin_border = Border(
+        left=Side(style='thin', color='D9D9D9'),
+        right=Side(style='thin', color='D9D9D9'),
+        top=Side(style='thin', color='D9D9D9'),
+        bottom=Side(style='medium', color='1F4E79')
+    )
+
+    # Build sheets and format headers
+    for sheet_name, headers in sheets_structure.items():
+        ws = wb.create_sheet(title=sheet_name)
+        ws.row_dimensions[1].height = 28
+        ws.views.sheetView[0].showGridLines = True
+
+        for col_idx, header in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col_idx, value=header)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = header_alignment
+            cell.border = thin_border
+            
+            # Set explicit clean width based on header length
+            col_letter = cell.column_letter
+            ws.column_dimensions[col_letter].width = max(len(header) + 5, 16)
+
+    # --- Data Validations (Dropdowns) ---
+
+    # 1. Sheet 4 (Courses) - Course Type Dropdown (Column E)
+    ws_courses = wb["Courses"]
+    dv_course_type = DataValidation(
+        type="list", formula1='"Theory,Lab"', allow_blank=True
+    )
+    ws_courses.add_data_validation(dv_course_type)
+    dv_course_type.add("E2:E1000")
+
+    # 2. Sheet 10 (Constraints) - Constraint Type Dropdown (Column A)
+    ws_constraints = wb["Constraints"]
+    constraint_types = '"Fixed Course,Fixed Class,Preferred Period,Preferred Day,Avoid Period,Avoid Day,Course Same Day Restriction,Maximum Consecutive Classes,Minimum Gap,Other Supported Constraint"'
+    dv_constraint_type = DataValidation(
+        type="list", formula1=constraint_types, allow_blank=True
+    )
+    ws_constraints.add_data_validation(dv_constraint_type)
+    dv_constraint_type.add("A2:A1000")
+
+    # 3. Sheet 10 (Constraints) - Priority Dropdown (Column F)
+    dv_priority = DataValidation(
+        type="list", formula1='"Hard,Soft"', allow_blank=True
+    )
+    ws_constraints.add_data_validation(dv_priority)
+    dv_priority.add("F2:F1000")
+
+    # Save to memory stream
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+
+    return send_file(
+        output,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True,
+        download_name="Timetable_Template.xlsx"
+    )
+
+# ===================================================================
+# 3. MULTI-SHEET PARSER + OR-TOOLS CP-SAT WORKER
+# ===================================================================
+
+def process_and_solve_job(app_context, job_id, college_id, semester_id, file_bytes):
+    with app_context:
+        job = Job.query.get(job_id)
+        try:
+            job.status = 'running'
+            job.progress_message = "Reading Excel sheets..."
+            db.session.commit()
+
+            # Read all 10 sheets into DataFrames
+            sheets = pd.read_excel(io.BytesIO(file_bytes), sheet_name=None)
+
+            df_classes = sheets.get("Classes", pd.DataFrame())
+            df_faculty = sheets.get("Faculty", pd.DataFrame())
+            df_courses = sheets.get("Courses", pd.DataFrame())
+            df_alloc = sheets.get("Faculty Allocation", pd.DataFrame())
+            df_rooms = sheets.get("Rooms", pd.DataFrame())
+            df_slots = sheets.get("Time Slots", pd.DataFrame())
+            df_fac_avail = sheets.get("Faculty Availability", pd.DataFrame())
+            df_room_avail = sheets.get("Room Availability", pd.DataFrame())
+            df_constraints = sheets.get("Constraints", pd.DataFrame())
+
+            created_counts = {"classes": 0, "faculty": 0, "rooms": 0, "courses": 0}
+
+            # 1. Database Entity Synchronization
+            job.progress_message = "Syncing database records..."
+            db.session.commit()
+
+            # Classes
+            class_map = {} # Class ID / Name -> Database Class Entity
+            for _, r in df_classes.iterrows():
+                c_name = str(r.get("Class ID", r.get("Section", ""))).strip()
+                if not c_name: continue
+                cls = Class.query.filter_by(college_id=college_id, class_name=c_name).first()
+                if not cls:
+                    cls = Class(college_id=college_id, class_name=c_name, semester_id=semester_id)
+                    db.session.add(cls)
+                    db.session.flush()
+                    created_counts["classes"] += 1
+                class_map[c_name] = cls
+
+            # Faculty
+            fac_map = {}
+            for _, r in df_faculty.iterrows():
+                f_id = str(r.get("Faculty ID", "")).strip()
+                f_email = str(r.get("Email", "")).strip()
+                f_name = str(r.get("Faculty Name", "")).strip()
+                if not f_id and not f_email: continue
+                fac = Faculty.query.filter_by(college_id=college_id, email=f_email).first() if f_email else None
+                if not fac:
+                    fac = Faculty(college_id=college_id, name=f_name, email=f_email)
+                    db.session.add(fac)
+                    db.session.flush()
+                    created_counts["faculty"] += 1
+                fac_map[f_id] = fac
+
+            # Rooms
+            room_map = {}
+            for _, r in df_rooms.iterrows():
+                r_id = str(r.get("Room ID", r.get("Room Name", ""))).strip()
+                if not r_id: continue
+                rm = Room.query.filter_by(college_id=college_id, room_name=r_id).first()
+                if not rm:
+                    rm = Room(college_id=college_id, room_name=r_id)
+                    db.session.add(rm)
+                    db.session.flush()
+                    created_counts["rooms"] += 1
+                room_map[r_id] = rm
+
+            # Courses
+            course_map = {}
+            for _, r in df_courses.iterrows():
+                c_code = str(r.get("Course Code", "")).strip()
+                c_name = str(r.get("Course Name", "")).strip()
+                c_type = str(r.get("Course Type", "Theory")).strip()
+                pps = int(r.get("Periods Per Session", 1))
+                if not c_code: continue
+                
+                # Default map to first available class if unlinked
+                default_class = list(class_map.values())[0] if class_map else None
+                course = Course.query.filter_by(course_code=c_code).first()
+                if not course:
+                    course = Course(
+                        class_id=default_class.class_id if default_class else None,
+                        course_name=c_name,
+                        course_code=c_code,
+                        periods_needed=int(r.get("Hours Per Week", 3))
+                    )
+                    db.session.add(course)
+                    db.session.flush()
+                    created_counts["courses"] += 1
+                course_map[c_code] = {
+                    "obj": course,
+                    "type": c_type,
+                    "pps": pps
+                }
+
+            db.session.commit()
+
+            # 2. Build CP-SAT Optimization Model
+            job.progress_message = "Configuring CP-SAT constraints..."
+            db.session.commit()
+
+            model = cp_model.CpModel()
+            days = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
+            periods = list(range(1, 7)) # 6 daily slots
+
+            # Parse time slot grid if supplied
+            if not df_slots.empty and "Day" in df_slots.columns:
+                days = list(df_slots["Day"].unique())
+                periods = list(df_slots["Period"].unique())
+
+            # Variables: x[alloc_index, day, period]
+            x = {}
+            allocations = []
+            for idx, r in df_alloc.iterrows():
+                f_id = str(r.get("Faculty ID", "")).strip()
+                c_code = str(r.get("Course Code", "")).strip()
+                cls_id = str(r.get("Class ID", "")).strip()
+                hrs = int(r.get("Hours Per Week", 3))
+
+                if c_code in course_map and cls_id in class_map:
+                    alloc_info = {
+                        "id": idx,
+                        "course_id": course_map[c_code]["obj"].course_id,
+                        "class_db_id": class_map[cls_id].class_id,
+                        "fac_db_id": fac_map[f_id].faculty_id if f_id in fac_map else None,
+                        "hours": hrs,
+                        "pps": course_map[c_code]["pps"],
+                        "type": course_map[c_code]["type"]
+                    }
+                    allocations.append(alloc_info)
+
+                    for d in days:
+                        for p in periods:
+                            x[idx, d, p] = model.NewBoolVar(f'x_{idx}_{d}_{p}')
+
+            # Constraint 1: Fulfill Required Weekly Hours per Allocation
+            for alloc in allocations:
+                a_id = alloc["id"]
+                model.Add(sum(x[a_id, d, p] for d in days for p in periods) == alloc["hours"])
+
+            # Constraint 2: Class Double-Booking Prevention
+            for cls_name, cls_obj in class_map.items():
+                cls_allocs = [a["id"] for a in allocations if a["class_db_id"] == cls_obj.class_id]
+                for d in days:
+                    for p in periods:
+                        model.Add(sum(x[a_id, d, p] for a_id in cls_allocs) <= 1)
+
+            # Constraint 3: Faculty Double-Booking Prevention
+            for f_id, fac_obj in fac_map.items():
+                fac_allocs = [a["id"] for a in allocations if a["fac_db_id"] == fac_obj.faculty_id]
+                for d in days:
+                    for p in periods:
+                        model.Add(sum(x[a_id, d, p] for a_id in fac_allocs) <= 1)
+
+            # Constraint 4: Faculty Unavailability Masks
+            for _, r in df_fac_avail.iterrows():
+                f_id = str(r.get("Faculty ID", "")).strip()
+                d = str(r.get("Day", "")).strip()
+                p = r.get("Period")
+                status = str(r.get("Availability", "")).lower()
+
+                if status in ["unavailable", "no", "off"] and f_id in fac_map:
+                    fac_obj = fac_map[f_id]
+                    fac_allocs = [a["id"] for a in allocations if a["fac_db_id"] == fac_obj.faculty_id]
+                    for a_id in fac_allocs:
+                        if (a_id, d, p) in x:
+                            model.Add(x[a_id, d, p] == 0)
+
+            # Constraint 5: Custom Sheet Rules (Constraints Tab)
+            soft_penalties = []
+            for _, r in df_constraints.iterrows():
+                c_type = str(r.get("Constraint Type", "")).strip()
+                d = str(r.get("Day", "")).strip()
+                p = r.get("Period")
+                priority = str(r.get("Priority", "Hard")).strip()
+
+                if c_type == "Avoid Period":
+                    for a in allocations:
+                        if (a["id"], d, p) in x:
+                            if priority == "Hard":
+                                model.Add(x[a["id"], d, p] == 0)
+                            else:
+                                soft_penalties.append(x[a["id"], d, p])
+
+            if soft_penalties:
+                model.Minimize(sum(soft_penalties))
+
+            # 3. Solve Model
+            job.progress_message = "Solving schedule via CP-SAT engine..."
+            db.session.commit()
+
+            solver = cp_model.CpSolver()
+            solver.parameters.max_time_in_seconds = 30.0
+            status = solver.Solve(model)
+
+            if status in (cp_model.FEASIBLE, cp_model.OPTIMAL):
+                # Clear old entries for relevant classes
+                all_class_ids = [c.class_id for c in class_map.values()]
+                TimetableEntry.query.filter(TimetableEntry.class_id.in_(all_class_ids)).delete(synchronize_session=False)
+
+                # Write generated schedule to Database
+                for alloc in allocations:
+                    a_id = alloc["id"]
+                    for d in days:
+                        for p in periods:
+                            if solver.Value(x[a_id, d, p]) == 1:
+                                entry = TimetableEntry(
+                                    class_id=alloc["class_db_id"],
+                                    course_id=alloc["course_id"],
+                                    faculty_id=alloc["fac_db_id"],
+                                    day_of_week=d,
+                                    period_number=p
+                                )
+                                db.session.add(entry)
+
+                job.status = 'success'
+                job.progress_message = "Timetable successfully generated from workbook!"
+                job.result = {"created": created_counts}
+                db.session.commit()
+
+            else:
+                job.status = 'failed'
+                job.error = "Could not find a valid schedule. Constraints are too strict or available time slots are overloaded."
+                db.session.commit()
+
+        except Exception as e:
+            db.session.rollback()
+            job.status = 'failed'
+            job.error = str(e)
+            db.session.commit()
+
+# ===================================================================
+# 4. ASYNC TRIGGER & STATUS ENDPOINTS
+# ===================================================================
+
+@app.route('/upload_and_generate_timetable_async', methods=['POST'])
+def upload_and_generate_timetable_async():
+    if 'file' not in request.files:
+        return jsonify({"error": "No file uploaded"}), 400
+
+    college_id = request.form.get('college_id', type=int)
+    semester_id = request.form.get('semester_id', type=int)
+    file = request.files['file']
+    file_bytes = file.read()
+
+    job_id = str(uuid.uuid4())
+    job = Job(
+        job_id=job_id,
+        college_id=college_id,
+        job_type='timetable_generation',
+        status='pending',
+        progress_message='Queued for execution'
+    )
+    db.session.add(job)
+    db.session.commit()
+
+    app_ctx = app.app_context()
+    thread = threading.Thread(
+        target=process_and_solve_job, 
+        args=(app_ctx, job_id, college_id, semester_id, file_bytes)
+    )
+    thread.start()
+
+    return jsonify({"job_id": job_id, "status": "pending"}), 202
+
+
+@app.route('/job_status/<job_id>', methods=['GET'])
+def get_job_status(job_id):
+    job = Job.query.get(job_id)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+
+    return jsonify({
+        "job_id": job.job_id,
+        "status": job.status,
+        "progress_message": job.progress_message,
+        "result": job.result,
+        "error": job.error
+    }), 200
+
+def process_and_solve_job(app_ctx, job_id, college_id, semester_id, file_bytes):
+    with app_ctx:
+        job = Job.query.filter_by(job_id=job_id).first()
+        if not job:
+            return
+
+        try:
+            # 1. Update status to running
+            job.status = 'processing'
+            job.progress_message = 'Running OR-Tools solver...'
+            db.session.commit()
+
+            # 2. Save file bytes temporarily so pandas can read it
+            temp_file_path = f"temp_job_{job_id}.xlsx"
+            with open(temp_file_path, "wb") as f:
+                f.write(file_bytes)
+
+            # --- STRICT ROW COUNT VALIDATION & DB SYNC ---
+            excel_file = pd.ExcelFile(temp_file_path)
+            required_sheets = ['Faculty', 'Rooms', 'Courses', 'Departments', 'Classes', 'Faculty Allocation', 'Time Slots']
+            for sheet in required_sheets:
+                if sheet not in excel_file.sheet_names:
+                    raise ValueError(f"Missing required sheet: {sheet}")
+                
+                df = pd.read_excel(excel_file, sheet_name=sheet)
+                df_cleaned = df.dropna(how='all')
+                if len(df_cleaned) == 0:
+                    raise ValueError(f"The sheet '{sheet}' contains no data rows.")
+
+            # Load DataFrames
+            sheets_data = {s: pd.read_excel(excel_file, sheet_name=s).dropna(how='all') for s in required_sheets}
+            excel_file.close() # Close file handle
+
+            df_departments = sheets_data["Departments"]
+            df_classes = sheets_data["Classes"]
+            df_faculty = sheets_data["Faculty"]
+            df_courses = sheets_data["Courses"]
+            df_alloc = sheets_data["Faculty Allocation"]
+            df_slots = sheets_data["Time Slots"]
+
+            # 1. Map Departments ID -> Name
+            dept_map = {}
+            for _, r in df_departments.iterrows():
+                d_id = str(r.get("Department ID", "")).strip()
+                d_name = str(r.get("Department Name", "")).strip()
+                if d_id:
+                    dept_map[d_id] = d_name
+
+            # 2. Sync Faculty
+            fac_map = {} # Excel Faculty ID -> DB Faculty object
+            for _, r in df_faculty.iterrows():
+                excel_fac_id = str(r.get("Faculty ID", "")).strip()
+                fac_name = str(r.get("Faculty Name", "")).strip()
+                fac_email = str(r.get("Email", "")).strip()
+                if not excel_fac_id:
+                    continue
+                fac = None
+                if fac_email:
+                    fac = Faculty.query.filter_by(college_id=college_id, email=fac_email).first()
+                if not fac:
+                    # Auto-create account: set temporary password to his email ID
+                    fac_pw_hash = bcrypt.generate_password_hash(fac_email).decode('utf-8')
+                    fac = Faculty(
+                        college_id=college_id,
+                        name=fac_name,
+                        email=fac_email,
+                        password_hash=fac_pw_hash
+                    )
+                    db.session.add(fac)
+                    db.session.flush()
+                fac_map[excel_fac_id] = fac
+
+            # 3. Sync Classes
+            class_map = {} # Excel Class ID -> DB Class object
+            for _, r in df_classes.iterrows():
+                excel_class_id = str(r.get("Class ID", "")).strip()
+                excel_dept_id = str(r.get("Department", "")).strip()
+                dept_name = dept_map.get(excel_dept_id, excel_dept_id)
+                year = str(r.get("Academic Year", "")).strip()
+                section = str(r.get("Section", "")).strip()
+                if not excel_class_id:
+                    continue
+                cls = Class.query.filter_by(
+                    college_id=college_id,
+                    semester_id=semester_id,
+                    year=year,
+                    section=section,
+                    department=dept_name
+                ).first()
+                if not cls:
+                    cls = Class(
+                        college_id=college_id,
+                        semester_id=semester_id,
+                        year=year,
+                        section=section,
+                        department=dept_name
+                    )
+                    db.session.add(cls)
+                    db.session.flush()
+                class_map[excel_class_id] = cls
+
+            # 4. Sync Courses
+            course_names = {}
+            for _, r in df_courses.iterrows():
+                c_code = str(r.get("Course Code", "")).strip()
+                c_name = str(r.get("Course Name", "")).strip()
+                if c_code:
+                    course_names[c_code] = c_name
+
+            course_map = {} # (excel_course_code, DB_class_id) -> DB Course object
+            for _, r in df_alloc.iterrows():
+                excel_fac_id = str(r.get("Faculty ID", "")).strip()
+                excel_course_code = str(r.get("Course Code", "")).strip()
+                excel_class_id = str(r.get("Class ID", "")).strip()
+                
+                db_class = class_map.get(excel_class_id)
+                if not db_class:
+                    continue
+                
+                db_fac = fac_map.get(excel_fac_id)
+                db_fac_id = db_fac.faculty_id if db_fac else None
+                
+                course_name = course_names.get(excel_course_code, excel_course_code)
+                
+                course = Course.query.filter_by(
+                    class_id=db_class.class_id,
+                    course_name=course_name
+                ).first()
+                
+                if not course:
+                    course = Course(
+                        class_id=db_class.class_id,
+                        course_name=course_name,
+                        course_code=excel_course_code,
+                        faculty_id=db_fac_id
+                    )
+                    db.session.add(course)
+                    db.session.flush()
+                else:
+                    if not course.course_code:
+                        course.course_code = excel_course_code
+                    if db_fac_id and not course.faculty_id:
+                        course.faculty_id = db_fac_id
+                    db.session.flush()
+                
+                course_map[(excel_course_code, db_class.class_id)] = course
+
+            db.session.commit()
+
+            # 5. Extract Time Slot times
+            slot_times = {} # (day_lower, period_no) -> (start_time, end_time)
+            for _, r in df_slots.iterrows():
+                day = str(r.get("Day", "")).strip().lower()
+                period = int(r.get("Period", 0))
+                start_t = r.get("Start Time")
+                end_t = r.get("End Time")
+                if pd.notna(start_t):
+                    if hasattr(start_t, 'strftime'):
+                        start_t = start_t.strftime('%H:%M')
+                    else:
+                        start_t = str(start_t).strip()
+                else:
+                    start_t = None
+                if pd.notna(end_t):
+                    if hasattr(end_t, 'strftime'):
+                        end_t = end_t.strftime('%H:%M')
+                    else:
+                        end_t = str(end_t).strip()
+                else:
+                    end_t = None
+                
+                if day and period:
+                    slot_times[(day, period)] = (start_t, end_t)
+
+            # -----------------------------------
+
+            # 6. Call the OR-Tools solver
+            result = generate_timetable_with_ortools(temp_file_path)
+
+            # Clean up temporary file
+            try:
+                if os.path.exists(temp_file_path):
+                    os.remove(temp_file_path)
+            except PermissionError:
+                pass  # Windows file lock — file will be cleaned up later
+
+            if result["status"] == "success":
+                schedule_entries = result["schedule"]
+                
+                # Clear old entries for relevant synced classes to avoid duplicate timetable entries
+                synced_class_ids = [c.class_id for c in class_map.values()]
+                if synced_class_ids:
+                    TimetableEntry.query.filter(TimetableEntry.class_id.in_(synced_class_ids)).delete(synchronize_session=False)
+                    db.session.commit()
+
+                # Day name converter for day_of_week MON, TUE, etc.
+                day_name_map = {
+                    'monday': 'MON',
+                    'tuesday': 'TUE',
+                    'wednesday': 'WED',
+                    'thursday': 'THU',
+                    'friday': 'FRI',
+                    'saturday': 'SAT',
+                    'sunday': 'SUN'
+                }
+
+                # Save each generated entry to TimetableEntry
+                for entry in schedule_entries:
+                    excel_class_id = str(entry['class_id'])
+                    excel_course_code = str(entry['course_code'])
+                    day_full = str(entry['day']).strip()
+                    period_no = int(entry['period'])
+                    
+                    db_class = class_map.get(excel_class_id)
+                    if not db_class:
+                        continue
+                        
+                    db_course = course_map.get((excel_course_code, db_class.class_id))
+                    db_course_id = db_course.course_id if db_course else None
+                    
+                    # Convert day name to short code
+                    day_short = day_name_map.get(day_full.lower(), day_full[:3].upper())
+                    
+                    # Look up start and end times from slot_times
+                    start_t, end_t = slot_times.get((day_full.lower(), period_no), (None, None))
+                    
+                    new_timetable_entry = TimetableEntry(
+                        class_id=db_class.class_id,
+                        day_of_week=day_short,
+                        period_no=period_no,
+                        course_id=db_course_id,
+                        start_time=start_t,
+                        end_time=end_t,
+                        entry_type='period',
+                        status_color='normal'
+                    )
+                    db.session.add(new_timetable_entry)
+                
+                db.session.commit()
+
+                # 6. Mark job as complete
+                job.status = 'success'
+                job.progress_message = 'Timetable generated successfully!'
+                job.result = {
+                    "created": {
+                        "classes": len(schedule_entries),
+                        "courses": len(set(e['course_code'] for e in schedule_entries)),
+                        "rooms": len(set(e['room_id'] for e in schedule_entries))
+                    }
+                }
+                db.session.commit()
+            else:
+                job.status = 'failed'
+                job.error = result["error"]
+                db.session.commit()
+
+        except Exception as e:
+            # Clean up temp file if it exists in case of failure
+            try:
+                if 'temp_file_path' in locals() and os.path.exists(temp_file_path):
+                    os.remove(temp_file_path)
+            except PermissionError:
+                pass  # Windows file lock — file will be cleaned up later
+                
+            job.status = 'failed'
+            job.error = str(e)
+            db.session.commit()
+
+    #timetable generator\
+
+
+
+
+
 
 
 @app.route("/admin_ensure_faculty_identity", methods=["POST"])

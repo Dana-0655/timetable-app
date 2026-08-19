@@ -24,7 +24,31 @@ class _AdminAddFacultyScreenState extends State<AdminAddFacultyScreen> {
   final _expertiseController = TextEditingController();
 
   bool _isSaving = false;
-  List<String> _addedNames = [];
+  bool _isLoadingList = false;
+  List<dynamic> _existingFaculty = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadExistingFaculty();
+  }
+
+  Future<void> _loadExistingFaculty() async {
+    setState(() => _isLoadingList = true);
+    try {
+      final response = await http.get(
+        Uri.parse('http://127.0.0.1:5000/faculty_list/${widget.collegeId}'),
+      );
+      if (response.statusCode == 200) {
+        setState(() {
+          _existingFaculty = jsonDecode(response.body);
+        });
+      }
+    } catch (e) {
+      // ignore connection blips
+    }
+    setState(() => _isLoadingList = false);
+  }
 
   Future<void> _addFaculty() async {
     if (_nameController.text.trim().isEmpty ||
@@ -55,13 +79,12 @@ class _AdminAddFacultyScreenState extends State<AdminAddFacultyScreen> {
       final data = jsonDecode(response.body);
 
       if (response.statusCode == 200) {
-        setState(() {
-          _addedNames.insert(0, _nameController.text.trim());
-        });
         _nameController.clear();
         _emailController.clear();
         _passwordController.clear();
         _expertiseController.clear();
+        _loadExistingFaculty(); // Automatically refresh list
+
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('${data['message']} Add another below.')),
@@ -141,27 +164,42 @@ class _AdminAddFacultyScreenState extends State<AdminAddFacultyScreen> {
               ),
             ),
             const SizedBox(height: 24),
-            if (_addedNames.isNotEmpty) ...[
-              const Text(
-                'Added this session:',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 8),
-              Expanded(
-                child: ListView.builder(
-                  itemCount: _addedNames.length,
-                  itemBuilder: (context, index) => Card(
-                    child: ListTile(
-                      leading: const Icon(
-                        Icons.check_circle,
-                        color: Colors.green,
-                      ),
-                      title: Text(_addedNames[index]),
-                    ),
-                  ),
-                ),
-              ),
-            ],
+            const Text(
+              'Available Faculty Members:',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+            ),
+            const SizedBox(height: 8),
+            Expanded(
+              child: _isLoadingList
+                  ? const Center(child: CircularProgressIndicator())
+                  : _existingFaculty.isEmpty
+                      ? const Center(child: Text('No faculty registered yet.'))
+                      : ListView.builder(
+                          itemCount: _existingFaculty.length,
+                          itemBuilder: (context, index) {
+                            final f = _existingFaculty[index];
+                            return Card(
+                              margin: const EdgeInsets.only(bottom: 8),
+                              child: ListTile(
+                                leading: const Icon(
+                                  Icons.person,
+                                  color: Colors.blue,
+                                ),
+                                title: Text(f['name'] ?? ''),
+                                subtitle: Text(f['email'] ?? ''),
+                                trailing: f['is_admin'] == true
+                                    ? const Chip(
+                                        label: Text(
+                                          'Admin',
+                                          style: TextStyle(fontSize: 10),
+                                        ),
+                                      )
+                                    : null,
+                              ),
+                            );
+                          },
+                        ),
+            ),
           ],
         ),
       ),

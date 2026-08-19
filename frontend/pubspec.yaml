@@ -13,6 +13,7 @@ dependencies:
   cupertino_icons: ^1.0.8
   http: ^1.6.0
   shared_preferences: ^2.5.5
+  url_launcher: ^6.2.0
   
   # New dependencies for Excel upload and template download
   file_picker: ^8.0.0

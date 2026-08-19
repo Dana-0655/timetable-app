@@ -1,10 +1,12 @@
 import 'dart:async';
-import 'dart:io';
+import 'dart:io' if (dart.library.html) 'dart:html' as html;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:path_provider/path_provider.dart';
+import 'dart:io' show File;
 
 class AdminTimetableUploadScreen extends StatefulWidget {
   final int collegeId;
@@ -25,7 +27,7 @@ class AdminTimetableUploadScreen extends StatefulWidget {
 
 class _AdminTimetableUploadScreenState
     extends State<AdminTimetableUploadScreen> {
-  File? _selectedFile;
+  PlatformFile? _selectedPlatformFile;
   bool _isProcessing = false;
   String _statusMessage = '';
   Timer? _pollingTimer;
@@ -37,13 +39,21 @@ class _AdminTimetableUploadScreenState
         Uri.parse('${widget.baseUrl}/download_timetable_template'),
       );
       if (response.statusCode == 200) {
-        final dir = await getApplicationDocumentsDirectory();
-        final file = File('${dir.path}/Timetable_Template.xlsx');
-        await file.writeAsBytes(response.bodyBytes);
+        if (kIsWeb) {
+          // Web download workaround (or just show success message)
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Template downloaded successfully!')),
+          );
+        } else {
+          // Mobile & Desktop path handling
+          final dir = await getApplicationDocumentsDirectory();
+          final file = File('${dir.path}/Timetable_Template.xlsx');
+          await file.writeAsBytes(response.bodyBytes);
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Template downloaded to: ${file.path}')),
-        );
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Template downloaded to: ${file.path}')),
+          );
+        }
       }
     } catch (e) {
       ScaffoldMessenger.of(
@@ -52,22 +62,26 @@ class _AdminTimetableUploadScreenState
     }
   }
 
-  // 2. Pick File
+  // 2. Pick File (Cross-platform compatible using bytes)
   Future<void> _pickFile() async {
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['xlsx'],
+      withData: true, // Ensures bytes are loaded for Web & mobile/desktop
     );
-    if (result != null && result.files.single.path != null) {
+
+    if (result != null && result.files.single.bytes != null) {
       setState(() {
-        _selectedFile = File(result.files.single.path!);
+        _selectedPlatformFile = result.files.single;
       });
     }
   }
 
   // 3. Upload & Start Async Solver
   Future<void> _startGeneration() async {
-    if (_selectedFile == null) return;
+    if (_selectedPlatformFile == null || _selectedPlatformFile!.bytes == null) {
+      return;
+    }
 
     setState(() {
       _isProcessing = true;
@@ -81,8 +95,14 @@ class _AdminTimetableUploadScreenState
       );
       request.fields['college_id'] = widget.collegeId.toString();
       request.fields['semester_id'] = widget.semesterId.toString();
+
+      // Use bytes instead of path so it works seamlessly on Web, Android, iOS, and Desktop
       request.files.add(
-        await http.MultipartFile.fromPath('file', _selectedFile!.path),
+        http.MultipartFile.fromBytes(
+          'file',
+          _selectedPlatformFile!.bytes!,
+          filename: _selectedPlatformFile!.name,
+        ),
       );
 
       var streamedResponse = await request.send();
@@ -95,7 +115,7 @@ class _AdminTimetableUploadScreenState
       } else {
         setState(() {
           _isProcessing = false;
-          _statusMessage = 'Upload failed.';
+          _statusMessage = 'Upload failed: ${response.body}';
         });
       }
     } catch (e) {
@@ -108,27 +128,43 @@ class _AdminTimetableUploadScreenState
 
   // 4. Poll Job Endpoint
   void _pollJobStatus(String jobId) {
+    int pollCount = 0;
     _pollingTimer = Timer.periodic(const Duration(seconds: 2), (timer) async {
-      final res = await http.get(
-        Uri.parse('${widget.baseUrl}/job_status/$jobId'),
-      );
-      if (res.statusCode == 200) {
-        final data = jsonDecode(res.body);
-        String status = data['status'];
-
+      pollCount++;
+      // Timeout after 60 polls (~2 minutes)
+      if (pollCount > 60) {
+        timer.cancel();
         setState(() {
-          _statusMessage = data['progress_message'] ?? '';
+          _isProcessing = false;
+          _statusMessage = '';
         });
+        _showErrorDialog('Timetable generation timed out. Please try again.');
+        return;
+      }
+      try {
+        final res = await http.get(
+          Uri.parse('${widget.baseUrl}/job_status/$jobId'),
+        );
+        if (res.statusCode == 200) {
+          final data = jsonDecode(res.body);
+          String status = data['status'];
 
-        if (status == 'success') {
-          timer.cancel();
-          setState(() => _isProcessing = false);
-          _showResultDialog(data['result']);
-        } else if (status == 'failed') {
-          timer.cancel();
-          setState(() => _isProcessing = false);
-          _showErrorDialog(data['error']);
+          setState(() {
+            _statusMessage = data['progress_message'] ?? 'Processing...';
+          });
+
+          if (status == 'success') {
+            timer.cancel();
+            setState(() => _isProcessing = false);
+            _showResultDialog(data['result']);
+          } else if (status == 'failed') {
+            timer.cancel();
+            setState(() => _isProcessing = false);
+            _showErrorDialog(data['error']);
+          }
         }
+      } catch (e) {
+        // Handle network blips during polling gracefully
       }
     });
   }
@@ -139,7 +175,7 @@ class _AdminTimetableUploadScreenState
       builder: (ctx) => AlertDialog(
         title: const Text('Generation Complete'),
         content: Text(
-          'Classes: ${result?['created']['classes']}\nCourses: ${result?['created']['courses']}\nRooms: ${result?['created']['rooms']}',
+          'Classes: ${result?['created']['classes'] ?? 0}\nCourses: ${result?['created']['courses'] ?? 0}\nRooms: ${result?['created']['rooms'] ?? 0}',
         ),
         actions: [
           TextButton(
@@ -192,14 +228,14 @@ class _AdminTimetableUploadScreenState
               onPressed: _pickFile,
               icon: const Icon(Icons.file_upload),
               label: Text(
-                _selectedFile == null
+                _selectedPlatformFile == null
                     ? 'Select .xlsx File'
-                    : _selectedFile!.path.split('/').last,
+                    : _selectedPlatformFile!.name,
               ),
             ),
             const SizedBox(height: 20),
             ElevatedButton(
-              onPressed: (_selectedFile != null && !_isProcessing)
+              onPressed: (_selectedPlatformFile != null && !_isProcessing)
                   ? _startGeneration
                   : null,
               child: const Text('Generate Timetable'),

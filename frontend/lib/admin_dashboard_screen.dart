@@ -949,8 +949,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                         ),
                       ),
                       OutlinedButton.icon(
-                        icon: const Icon(Icons.calendar_view_week, size: 16),
-                        label: const Text('Browse / Swap'),
+                        icon: const Icon(Icons.search, size: 16),
+                        label: const Text('Browse'),
                         onPressed: () => Navigator.push(
                           context,
                           MaterialPageRoute(

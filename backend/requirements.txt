@@ -1,0 +1,8 @@
+Flask
+Flask-SQLAlchemy
+Flask-Cors
+PyMySQL
+pandas
+openpyxl
+ortools
+ortools==9.15.6755
