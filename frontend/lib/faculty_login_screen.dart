@@ -32,6 +32,9 @@ class _FacultyLoginScreenState extends State<FacultyLoginScreen> {
       _errorMessage = null;
     });
 
+    final savedCollege = await SessionManager.getSavedCollegeCode();
+    final collegeCode = savedCollege?['code'] ?? '';
+
     final url = Uri.parse('http://127.0.0.1:5000/login_faculty');
 
     try {
@@ -39,6 +42,7 @@ class _FacultyLoginScreenState extends State<FacultyLoginScreen> {
         url,
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
+          'college_code': collegeCode,
           'email': _emailController.text.trim(),
           'password': _passwordController.text,
         }),

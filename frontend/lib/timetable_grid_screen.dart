@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'weekly_matrix_grid_widget.dart';
 import 'vercel_bars_timetable_widget.dart';
 import 'class_info_dialog.dart';
+import 'swap_color_utils.dart';
 
 class TimetableGridScreen extends StatefulWidget {
   final int classId;
@@ -29,6 +30,7 @@ class _TimetableGridScreenState extends State<TimetableGridScreen> {
   int _selectedViewIndex = 0; // 0 = Grid Matrix, 1 = Vercel Bars
   Map<String, dynamic> _classInfo = {};
   List<dynamic> _entries = [];
+  Map<int, int> _swapColorIndex = {};
   bool _isLoadingInfo = true;
 
   @override
@@ -38,8 +40,12 @@ class _TimetableGridScreenState extends State<TimetableGridScreen> {
   }
 
   Future<void> _fetchClassData() async {
-    final infoUrl = Uri.parse('http://127.0.0.1:5000/class_info/${widget.classId}');
-    final ttUrl = Uri.parse('http://127.0.0.1:5000/timetable/${widget.classId}');
+    final infoUrl = Uri.parse(
+      'http://127.0.0.1:5000/class_info/${widget.classId}',
+    );
+    final ttUrl = Uri.parse(
+      'http://127.0.0.1:5000/timetable/${widget.classId}',
+    );
 
     try {
       final infoRes = await http.get(infoUrl);
@@ -52,6 +58,7 @@ class _TimetableGridScreenState extends State<TimetableGridScreen> {
       final ttRes = await http.get(ttUrl);
       if (ttRes.statusCode == 200) {
         _entries = jsonDecode(ttRes.body);
+        _swapColorIndex = buildSwapColorIndex(_entries);
       }
     } catch (_) {}
 
@@ -120,7 +127,7 @@ class _TimetableGridScreenState extends State<TimetableGridScreen> {
                   ),
                 ),
                 const SizedBox(height: 12),
-                
+
                 // Chips Row: Branch | Room | CC
                 Wrap(
                   alignment: WrapAlignment.center,
@@ -129,24 +136,45 @@ class _TimetableGridScreenState extends State<TimetableGridScreen> {
                   children: [
                     if (dept.isNotEmpty)
                       Chip(
-                        avatar: const Icon(Icons.school, size: 14, color: Colors.indigoAccent),
+                        avatar: const Icon(
+                          Icons.school,
+                          size: 14,
+                          color: Colors.indigoAccent,
+                        ),
                         label: Text('Branch: $dept'),
                         backgroundColor: const Color(0xFF1E293B),
-                        labelStyle: const TextStyle(color: Colors.white70, fontSize: 12),
+                        labelStyle: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 12,
+                        ),
                         padding: EdgeInsets.zero,
                       ),
                     Chip(
-                      avatar: const Icon(Icons.meeting_room, size: 14, color: Colors.amberAccent),
+                      avatar: const Icon(
+                        Icons.meeting_room,
+                        size: 14,
+                        color: Colors.amberAccent,
+                      ),
                       label: Text('Room: $room'),
                       backgroundColor: const Color(0xFF1E293B),
-                      labelStyle: const TextStyle(color: Colors.white70, fontSize: 12),
+                      labelStyle: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 12,
+                      ),
                       padding: EdgeInsets.zero,
                     ),
                     Chip(
-                      avatar: const Icon(Icons.person, size: 14, color: Colors.greenAccent),
+                      avatar: const Icon(
+                        Icons.person,
+                        size: 14,
+                        color: Colors.greenAccent,
+                      ),
                       label: Text('CC: $ccName'),
                       backgroundColor: const Color(0xFF1E293B),
-                      labelStyle: const TextStyle(color: Colors.white70, fontSize: 12),
+                      labelStyle: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 12,
+                      ),
                       padding: EdgeInsets.zero,
                     ),
                   ],
@@ -191,6 +219,7 @@ class _TimetableGridScreenState extends State<TimetableGridScreen> {
                     userRole: widget.isCC ? 'cc' : 'faculty',
                     currentFacultyId: widget.facultyId,
                     canEdit: widget.isCC,
+                    swapColorIndex: _swapColorIndex,
                     onTimetableChanged: _fetchClassData,
                   )
                 : VercelBarsTimetableWidget(
@@ -201,6 +230,7 @@ class _TimetableGridScreenState extends State<TimetableGridScreen> {
                     roomNo: room,
                     userRole: widget.isCC ? 'cc' : 'faculty',
                     currentFacultyId: widget.facultyId,
+                    swapColorIndex: _swapColorIndex,
                     onRefreshNeeded: _fetchClassData,
                   ),
           ),

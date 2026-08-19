@@ -1,12 +1,12 @@
 import 'dart:async';
-import 'dart:io' if (dart.library.html) 'dart:html' as html;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:path_provider/path_provider.dart';
-import 'dart:io' show File;
+import 'dart:io' show File, Directory, Platform;
+import 'package:url_launcher/url_launcher.dart';
 
 class AdminTimetableUploadScreen extends StatefulWidget {
   final int collegeId;
@@ -34,52 +34,97 @@ class _AdminTimetableUploadScreenState
 
   // 1. Download Excel Template
   Future<void> _downloadTemplate() async {
+    final downloadUrl = Uri.parse('${widget.baseUrl}/download_timetable_template');
     try {
-      final response = await http.get(
-        Uri.parse('${widget.baseUrl}/download_timetable_template'),
-      );
-      if (response.statusCode == 200) {
-        if (kIsWeb) {
-          // Web download workaround (or just show success message)
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Template downloaded successfully!')),
-          );
-        } else {
-          // Mobile & Desktop path handling
-          final dir = await getApplicationDocumentsDirectory();
-          final file = File('${dir.path}/Timetable_Template.xlsx');
+      if (kIsWeb) {
+        if (await canLaunchUrl(downloadUrl)) {
+          await launchUrl(downloadUrl, mode: LaunchMode.externalApplication);
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Downloading Timetable_Template.xlsx...')),
+            );
+          }
+        }
+      } else {
+        final response = await http.get(downloadUrl);
+        if (response.statusCode == 200) {
+          String? downloadsPath;
+          if (Platform.isWindows) {
+            final userProfile = Platform.environment['USERPROFILE'];
+            if (userProfile != null && userProfile.isNotEmpty) {
+              downloadsPath = '$userProfile\\Downloads';
+            }
+          }
+          if (downloadsPath == null || !Directory(downloadsPath).existsSync()) {
+            final dir = await getDownloadsDirectory() ?? await getApplicationDocumentsDirectory();
+            downloadsPath = dir.path;
+          }
+          final file = File('$downloadsPath\\Timetable_Template.xlsx');
           await file.writeAsBytes(response.bodyBytes);
 
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Template downloaded to: ${file.path}')),
-          );
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Template saved to Downloads: ${file.path}'),
+                duration: const Duration(seconds: 5),
+              ),
+            );
+          }
+        } else {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Download failed: ${response.statusCode}')),
+            );
+          }
         }
       }
     } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Download failed: $e')));
+      try {
+        await launchUrl(downloadUrl, mode: LaunchMode.externalApplication);
+      } catch (_) {}
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Downloading template... $e')),
+        );
+      }
     }
   }
+
+  Uint8List? _fileBytes;
+  String? _fileName;
 
   // 2. Pick File (Cross-platform compatible using bytes)
   Future<void> _pickFile() async {
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['xlsx'],
-      withData: true, // Ensures bytes are loaded for Web & mobile/desktop
+      withData: true,
     );
 
-    if (result != null && result.files.single.bytes != null) {
-      setState(() {
-        _selectedPlatformFile = result.files.single;
-      });
+    if (result != null && result.files.isNotEmpty) {
+      final picked = result.files.single;
+      Uint8List? bytes = picked.bytes;
+      if (bytes == null && picked.path != null && picked.path!.isNotEmpty) {
+        try {
+          bytes = await File(picked.path!).readAsBytes();
+        } catch (_) {}
+      }
+      if (bytes != null) {
+        setState(() {
+          _fileBytes = bytes;
+          _fileName = picked.name;
+          _selectedPlatformFile = picked;
+        });
+      }
     }
   }
 
   // 3. Upload & Start Async Solver
   Future<void> _startGeneration() async {
-    if (_selectedPlatformFile == null || _selectedPlatformFile!.bytes == null) {
+    if (_fileBytes == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please select an Excel file first.')),
+      );
       return;
     }
 
@@ -96,12 +141,11 @@ class _AdminTimetableUploadScreenState
       request.fields['college_id'] = widget.collegeId.toString();
       request.fields['semester_id'] = widget.semesterId.toString();
 
-      // Use bytes instead of path so it works seamlessly on Web, Android, iOS, and Desktop
       request.files.add(
         http.MultipartFile.fromBytes(
           'file',
-          _selectedPlatformFile!.bytes!,
-          filename: _selectedPlatformFile!.name,
+          _fileBytes!,
+          filename: _fileName ?? 'Timetable.xlsx',
         ),
       );
 

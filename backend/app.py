@@ -48,19 +48,27 @@ class Admin(db.Model):
     admin_id = db.Column(db.Integer, primary_key=True)
     college_id = db.Column(db.Integer, db.ForeignKey('college.college_id'), nullable=False)
     name = db.Column(db.String(100), nullable=False)
-    email = db.Column(db.String(150), unique=True, nullable=False)
+    email = db.Column(db.String(150), nullable=False)
     password_hash = db.Column(db.String(255), nullable=False)
     department_name = db.Column(db.String(100), nullable=False)
     created_at = db.Column(db.DateTime, server_default=db.func.now())
+
+    __table_args__ = (
+        db.UniqueConstraint('college_id', 'email', name='unique_admin_email_per_college'),
+    )
 
 class Faculty(db.Model):
     faculty_id = db.Column(db.Integer, primary_key=True)
     college_id = db.Column(db.Integer, db.ForeignKey('college.college_id'), nullable=False)
     name = db.Column(db.String(100), nullable=False)
-    email = db.Column(db.String(150), unique=True, nullable=False)
+    email = db.Column(db.String(150), nullable=False)
     password_hash = db.Column(db.String(255), nullable=False)
     subject_expertise = db.Column(db.String(255), nullable=True)
     created_at = db.Column(db.DateTime, server_default=db.func.now())
+
+    __table_args__ = (
+        db.UniqueConstraint('college_id', 'email', name='unique_faculty_email_per_college'),
+    )
 class Class(db.Model):
     class_id = db.Column(db.Integer, primary_key=True)
     college_id = db.Column(db.Integer, db.ForeignKey('college.college_id'), nullable=False)
@@ -223,6 +231,37 @@ def reset_weekly_swaps():
         db.session.commit()
         print(f"[WEEKLY RESET] Reverted {len(active_swaps)} swap(s) back to original schedule for the new week.")
 
+def reset_weekly_leaves():
+    with app.app_context():
+        all_leaves = Leave.query.all()
+        reverted = 0
+
+        for leave in all_leaves:
+            entry = TimetableEntry.query.get(leave.entry_id)
+            class_obj = Class.query.get(entry.class_id) if entry else None
+
+            if leave.status == "confirmed" and leave.confirmed_faculty_id and entry and class_obj:
+                substitute = Faculty.query.get(leave.confirmed_faculty_id)
+                if substitute:
+                    create_notification(
+                        "faculty", substitute.faculty_id,
+                        f"You're no longer covering {class_obj.year} - {class_obj.department} - "
+                        f"{class_obj.section}, {entry.day_of_week} Period {entry.period_no} — "
+                        f"the week has reset and the schedule is back to normal.",
+                        "cover_request"
+                    )
+
+            if entry:
+                entry.status_color = "normal"
+
+            CoverRequest.query.filter_by(leave_id=leave.leave_id).delete()
+            db.session.delete(leave)
+            reverted += 1
+
+        db.session.commit()
+        print(f"[WEEKLY RESET] Reverted {reverted} leave(s) back to original schedule for the new week.")
+        
+
 def create_notification(recipient_type, recipient_id, message, notif_type, reference_id=None):
     notif = UserNotification(
         recipient_type=recipient_type,
@@ -276,9 +315,9 @@ def check_pending_leaves():
                 print(f"[DEBUG] Not in reminder window yet.")
 
 def get_or_create_faculty_for_admin(admin):
-    """Finds this admin's linked Faculty row by email, or creates one
+    """Finds this admin's linked Faculty row by email AND college_id, or creates one
     on the fly so the admin can be assigned as CC / course faculty."""
-    faculty = Faculty.query.filter_by(email=admin.email).first()
+    faculty = Faculty.query.filter_by(college_id=admin.college_id, email=admin.email).first()
     if faculty:
         return faculty
     faculty = Faculty(
@@ -360,7 +399,7 @@ def download_timetable_template():
             "Room ID", "Day", "Period", "Availability"
         ],
         "Constraints": [
-            "Constraint Type", "Entity", "Day", "Period", "Value", "Priority"
+            "Enable", "Constraint Name", "Constraint Type", "Entity Type", "Entity", "Day", "Period", "Value", "Priority"
         ]
     }
 
@@ -392,31 +431,78 @@ def download_timetable_template():
             col_letter = cell.column_letter
             ws.column_dimensions[col_letter].width = max(len(header) + 5, 16)
 
+    # --- Pre-populate Redesigned Constraints Sheet ---
+    ws_constraints = wb["Constraints"]
+    predefined_constraints = [
+        ("FALSE", "Fix Specific Course to Slot", "Fixed Course", "Course", "", "", "", "", "High"),
+        ("FALSE", "Fix Specific Class to Slot", "Fixed Class", "Class", "", "", "", "", "High"),
+        ("FALSE", "Preferred Course Day", "Preferred Day", "Course", "", "", "", "", "Medium"),
+        ("FALSE", "Preferred Course Period", "Preferred Period", "Course", "", "", "", "", "Medium"),
+        ("FALSE", "Avoid Course Day", "Avoid Day", "Course", "", "", "", "", "Medium"),
+        ("FALSE", "Avoid Course Period", "Avoid Period", "Course", "", "", "", "", "Medium"),
+        ("FALSE", "Restrict Multiple Course Sessions per Day", "Course Same Day Restriction", "Course", "", "", "", "", "Medium"),
+        ("FALSE", "Maximum Consecutive Teaching Classes", "Maximum Consecutive Classes", "Faculty", "", "", "", "3", "Medium"),
+        ("FALSE", "Minimum Gap Between Classes", "Minimum Gap Between Classes", "Faculty", "", "", "", "1", "Medium"),
+        ("FALSE", "Spread Course Sessions Across Days", "Spread Course Across Days", "Course", "", "", "", "", "Medium"),
+        ("FALSE", "Avoid First Period Schedule", "Avoid First Period", "Faculty", "", "", "", "", "Low"),
+        ("FALSE", "Avoid Last Period Schedule", "Avoid Last Period", "Faculty", "", "", "", "", "Low"),
+        ("FALSE", "Faculty Preferred Working Day", "Faculty Preferred Day", "Faculty", "", "", "", "", "Medium"),
+        ("FALSE", "Faculty Preferred Working Period", "Faculty Preferred Period", "Faculty", "", "", "", "", "Medium"),
+        ("FALSE", "Class Preferred Attending Day", "Class Preferred Day", "Class", "", "", "", "", "Medium"),
+        ("FALSE", "Class Preferred Attending Period", "Class Preferred Period", "Class", "", "", "", "", "Medium"),
+        ("FALSE", "Preferred Lab Session Day", "Preferred Lab Day", "Lab Course", "", "", "", "", "Medium"),
+        ("FALSE", "Preferred Lab Session Period", "Preferred Lab Period", "Lab Course", "", "", "", "", "Medium"),
+        ("FALSE", "Avoid Lab Session Day", "Avoid Lab Day", "Lab Course", "", "", "", "", "Medium"),
+        ("FALSE", "Avoid Lab Session Period", "Avoid Lab Period", "Lab Course", "", "", "", "", "Medium"),
+        ("FALSE", "Preferred Laboratory Venue", "Preferred Laboratory/Room", "Lab Course", "", "", "", "", "Medium"),
+        ("FALSE", "Avoid Specific Laboratory Venue", "Avoid Specific Laboratory/Room", "Lab Course", "", "", "", "", "Medium"),
+    ]
+
+    for r_idx, row_values in enumerate(predefined_constraints, start=2):
+        ws_constraints.row_dimensions[r_idx].height = 20
+        for c_idx, val in enumerate(row_values, start=1):
+            cell = ws_constraints.cell(row=r_idx, column=c_idx, value=val)
+            cell.alignment = Alignment(vertical="center")
+
+    # Adjust Constraints column widths
+    constraints_widths = [10, 32, 28, 16, 16, 14, 10, 10, 12]
+    for col_idx, width in enumerate(constraints_widths, start=1):
+        ws_constraints.column_dimensions[ws_constraints.cell(row=1, column=col_idx).column_letter].width = width
+
     # --- Data Validations (Dropdowns) ---
 
     # 1. Sheet 4 (Courses) - Course Type Dropdown (Column E)
     ws_courses = wb["Courses"]
-    dv_course_type = DataValidation(
-        type="list", formula1='"Theory,Lab"', allow_blank=True
-    )
+    dv_course_type = DataValidation(type="list", formula1='"Theory,Lab"', allow_blank=True)
     ws_courses.add_data_validation(dv_course_type)
     dv_course_type.add("E2:E1000")
 
-    # 2. Sheet 10 (Constraints) - Constraint Type Dropdown (Column A)
-    ws_constraints = wb["Constraints"]
-    constraint_types = '"Fixed Course,Fixed Class,Preferred Period,Preferred Day,Avoid Period,Avoid Day,Course Same Day Restriction,Maximum Consecutive Classes,Minimum Gap,Other Supported Constraint"'
-    dv_constraint_type = DataValidation(
-        type="list", formula1=constraint_types, allow_blank=True
-    )
-    ws_constraints.add_data_validation(dv_constraint_type)
-    dv_constraint_type.add("A2:A1000")
+    # 2. Sheet 10 (Constraints) Dropdowns
+    # Enable Dropdown (Col A)
+    dv_enable = DataValidation(type="list", formula1='"TRUE,FALSE"', allow_blank=True)
+    ws_constraints.add_data_validation(dv_enable)
+    dv_enable.add("A2:A1000")
 
-    # 3. Sheet 10 (Constraints) - Priority Dropdown (Column F)
-    dv_priority = DataValidation(
-        type="list", formula1='"Hard,Soft"', allow_blank=True
-    )
+    # Constraint Type Dropdown (Col C)
+    c_type_options = '"Fixed Course,Fixed Class,Preferred Day,Preferred Period,Avoid Day,Avoid Period,Course Same Day Restriction,Maximum Consecutive Classes,Minimum Gap Between Classes,Spread Course Across Days,Avoid First Period,Avoid Last Period,Faculty Preferred Day,Faculty Preferred Period,Class Preferred Day,Class Preferred Period,Preferred Lab Day,Preferred Lab Period,Avoid Lab Day,Avoid Lab Period,Preferred Laboratory/Room,Avoid Specific Laboratory/Room"'
+    dv_c_type = DataValidation(type="list", formula1=c_type_options, allow_blank=True)
+    ws_constraints.add_data_validation(dv_c_type)
+    dv_c_type.add("C2:C1000")
+
+    # Entity Type Dropdown (Col D)
+    dv_e_type = DataValidation(type="list", formula1='"Course,Class,Faculty,Lab Course,Room"', allow_blank=True)
+    ws_constraints.add_data_validation(dv_e_type)
+    dv_e_type.add("D2:D1000")
+
+    # Day Dropdown (Col F)
+    dv_day = DataValidation(type="list", formula1='"Monday,Tuesday,Wednesday,Thursday,Friday,Saturday"', allow_blank=True)
+    ws_constraints.add_data_validation(dv_day)
+    dv_day.add("F2:F1000")
+
+    # Priority Dropdown (Col I)
+    dv_priority = DataValidation(type="list", formula1='"High,Medium,Low"', allow_blank=True)
     ws_constraints.add_data_validation(dv_priority)
-    dv_priority.add("F2:F1000")
+    dv_priority.add("I2:I1000")
 
     # Save to memory stream
     output = io.BytesIO()
@@ -816,6 +902,20 @@ def process_and_solve_job(app_ctx, job_id, college_id, semester_id, file_bytes):
                     db.session.flush()
                 class_map[excel_class_id] = cls
 
+            # 3b. Sync Rooms
+            df_rooms = sheets_data.get("Rooms", pd.DataFrame())
+            for _, r in df_rooms.iterrows():
+                r_name = str(r.get("Room Name", "") or r.get("Room ID", "")).strip()
+                r_type = str(r.get("Room Type", "Lecture")).strip()
+                cap = r.get("Capacity")
+                cap_val = int(cap) if pd.notna(cap) else None
+                if r_name:
+                    existing_room = Room.query.filter_by(college_id=college_id, room_name=r_name).first()
+                    if not existing_room:
+                        new_room = Room(college_id=college_id, room_name=r_name, room_type=r_type, capacity=cap_val)
+                        db.session.add(new_room)
+            db.session.flush()
+
             # 4. Sync Courses
             course_names = {}
             for _, r in df_courses.iterrows():
@@ -972,6 +1072,7 @@ def process_and_solve_job(app_ctx, job_id, college_id, semester_id, file_bytes):
                 db.session.commit()
 
         except Exception as e:
+            db.session.rollback()
             # Clean up temp file if it exists in case of failure
             try:
                 if 'temp_file_path' in locals() and os.path.exists(temp_file_path):
@@ -979,9 +1080,13 @@ def process_and_solve_job(app_ctx, job_id, college_id, semester_id, file_bytes):
             except PermissionError:
                 pass  # Windows file lock — file will be cleaned up later
                 
-            job.status = 'failed'
-            job.error = str(e)
-            db.session.commit()
+            try:
+                job.status = 'failed'
+                job.error = str(e)
+                db.session.commit()
+            except Exception as commit_err:
+                db.session.rollback()
+                print(f"Error marking job as failed: {commit_err}")
 
     #timetable generator\
 
@@ -1370,22 +1475,22 @@ def get_colleges():
 def register_admin():
     data = request.get_json()
 
-    college = College.query.filter_by(college_code=data["college_code"]).first()
+    college = College.query.filter_by(college_code=data["college_code"].strip()).first()
     if not college:
         return jsonify({"error": "Invalid college code"}), 400
 
-    existing_admin = Admin.query.filter_by(email=data["email"]).first()
+    existing_admin = Admin.query.filter_by(college_id=college.college_id, email=data["email"].strip()).first()
     if existing_admin:
-        return jsonify({"error": "Email already registered"}), 400
+        return jsonify({"error": "Email already registered for this college code"}), 400
 
     hashed_pw = bcrypt.generate_password_hash(data["password"]).decode('utf-8')
 
     new_admin = Admin(
         college_id=college.college_id,
-        name=data["name"],
-        email=data["email"],
+        name=data["name"].strip(),
+        email=data["email"].strip(),
         password_hash=hashed_pw,
-        department_name=data["department_name"]
+        department_name=data.get("department_name", "").strip()
     )
     db.session.add(new_admin)
     db.session.commit()
@@ -1395,12 +1500,22 @@ def register_admin():
 @app.route("/login_admin", methods=["POST"])
 def login_admin():
     data = request.get_json()
+    college_code = data.get("college_code", "").strip()
+    email = data.get("email", "").strip()
+    password = data.get("password", "")
 
-    admin = Admin.query.filter_by(email=data["email"]).first()
+    if not college_code:
+        return jsonify({"error": "College code is required for login."}), 400
+
+    college = College.query.filter_by(college_code=college_code).first()
+    if not college:
+        return jsonify({"error": f"College code '{college_code}' not found."}), 404
+
+    admin = Admin.query.filter_by(college_id=college.college_id, email=email).first()
     if not admin:
-        return jsonify({"error": "Admin not found"}), 404
+        return jsonify({"error": f"Admin account for '{email}' not found under college code '{college_code}'."}), 404
 
-    if bcrypt.check_password_hash(admin.password_hash, data["password"]):
+    if bcrypt.check_password_hash(admin.password_hash, password):
         return jsonify({
             "message": "Login successful",
             "admin_id": admin.admin_id,
@@ -1414,22 +1529,22 @@ def login_admin():
 def register_faculty():
     data = request.get_json()
 
-    college = College.query.filter_by(college_code=data["college_code"]).first()
+    college = College.query.filter_by(college_code=data["college_code"].strip()).first()
     if not college:
         return jsonify({"error": "Invalid college code"}), 400
 
-    existing_faculty = Faculty.query.filter_by(email=data["email"]).first()
+    existing_faculty = Faculty.query.filter_by(college_id=college.college_id, email=data["email"].strip()).first()
     if existing_faculty:
-        return jsonify({"error": "Email already registered"}), 400
+        return jsonify({"error": "Email already registered for this college code"}), 400
 
     hashed_pw = bcrypt.generate_password_hash(data["password"]).decode('utf-8')
 
     new_faculty = Faculty(
         college_id=college.college_id,
-        name=data["name"],
-        email=data["email"],
+        name=data["name"].strip(),
+        email=data["email"].strip(),
         password_hash=hashed_pw,
-        subject_expertise=data.get("subject_expertise", "")
+        subject_expertise=data.get("subject_expertise", "").strip()
     )
     db.session.add(new_faculty)
     db.session.commit()
@@ -1439,12 +1554,22 @@ def register_faculty():
 @app.route("/login_faculty", methods=["POST"])
 def login_faculty():
     data = request.get_json()
+    college_code = data.get("college_code", "").strip()
+    email = data.get("email", "").strip()
+    password = data.get("password", "")
 
-    faculty = Faculty.query.filter_by(email=data["email"]).first()
+    if not college_code:
+        return jsonify({"error": "College code is required for login."}), 400
+
+    college = College.query.filter_by(college_code=college_code).first()
+    if not college:
+        return jsonify({"error": f"College code '{college_code}' not found."}), 404
+
+    faculty = Faculty.query.filter_by(college_id=college.college_id, email=email).first()
     if not faculty:
-        return jsonify({"error": "Faculty not found"}), 404
+        return jsonify({"error": f"Faculty account for '{email}' not found under college code '{college_code}'."}), 404
 
-    if bcrypt.check_password_hash(faculty.password_hash, data["password"]):
+    if bcrypt.check_password_hash(faculty.password_hash, password):
         return jsonify({
             "message": "Login successful",
             "faculty_id": faculty.faculty_id,
@@ -1814,6 +1939,7 @@ def confirm_cover_request():
     )
 
     return jsonify({"message": "Cover request confirmed successfully!"})
+
 @app.route("/send_swap_request", methods=["POST"])
 def send_swap_request():
     data = request.get_json()
@@ -2880,17 +3006,13 @@ def get_holidays_for_class_week(class_id):
         for h in holidays
     })
 
-if os.environ.get('WERKZEUG_RUN_MAIN') == 'true' or not app.debug:
-    scheduler = BackgroundScheduler()
-    scheduler.add_job(check_pending_leaves, 'interval', minutes=1)
-    scheduler.add_job(cleanup_expired_statuses, 'interval', hours=6)
-    scheduler.start()
 
 if os.environ.get('WERKZEUG_RUN_MAIN') == 'true' or not app.debug:
     scheduler = BackgroundScheduler()
     scheduler.add_job(check_pending_leaves, 'interval', minutes=1)
     scheduler.add_job(cleanup_expired_statuses, 'interval', hours=6)
     scheduler.add_job(reset_weekly_swaps, CronTrigger(day_of_week='mon', hour=0, minute=0))
+    scheduler.add_job(reset_weekly_leaves, CronTrigger(day_of_week='mon', hour=0, minute=1))
     scheduler.start()
 
 if __name__ == "__main__":
