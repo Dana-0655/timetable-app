@@ -59,8 +59,11 @@ class _SemesterManagementScreenState extends State<SemesterManagementScreen> {
           ),
           ElevatedButton(
             onPressed: () async {
-              await _createSemester(nameController.text);
-              if (mounted) Navigator.pop(context);
+              final text = nameController.text.trim();
+              Navigator.pop(context);
+              if (text.isNotEmpty) {
+                await _createSemester(text);
+              }
             },
             child: const Text('Create'),
           ),
@@ -168,8 +171,8 @@ class _SemesterManagementScreenState extends State<SemesterManagementScreen> {
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
             onPressed: () async {
+              Navigator.pop(context);
               await _deleteSemester(semesterId);
-              if (mounted) Navigator.pop(context);
             },
             child: const Text('Delete'),
           ),

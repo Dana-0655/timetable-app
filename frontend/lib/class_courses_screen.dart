@@ -313,21 +313,21 @@ class _ClassCoursesScreenState extends State<ClassCoursesScreen> {
                                 color: Colors.green,
                               ),
                               onPressed: () async {
+                                Navigator.pop(context);
                                 await _resolveCourseRequest(
                                   req['cf_request_id'],
                                   'accepted',
                                 );
-                                if (mounted) Navigator.pop(context);
                               },
                             ),
                             IconButton(
                               icon: const Icon(Icons.close, color: Colors.red),
                               onPressed: () async {
+                                Navigator.pop(context);
                                 await _resolveCourseRequest(
                                   req['cf_request_id'],
                                   'rejected',
                                 );
-                                if (mounted) Navigator.pop(context);
                               },
                             ),
                           ],

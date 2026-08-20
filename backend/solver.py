@@ -599,7 +599,7 @@ def generate_timetable_with_ortools(file_path):
 
             # Solve
             solver = cp_model.CpSolver()
-            solver.parameters.max_time_in_seconds = 120.0
+            solver.parameters.max_time_in_seconds = 45.0
             solver.parameters.num_search_workers = 8
             status = solver.solve(model)
 

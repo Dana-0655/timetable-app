@@ -175,8 +175,8 @@ class _AdminTimetableUploadScreenState
     int pollCount = 0;
     _pollingTimer = Timer.periodic(const Duration(seconds: 2), (timer) async {
       pollCount++;
-      // Timeout after 60 polls (~2 minutes)
-      if (pollCount > 60) {
+      // Timeout after 150 polls (~5 minutes)
+      if (pollCount > 150) {
         timer.cancel();
         setState(() {
           _isProcessing = false;
@@ -216,15 +216,33 @@ class _AdminTimetableUploadScreenState
   void _showResultDialog(Map<String, dynamic>? result) {
     showDialog(
       context: context,
+      barrierDismissible: false,
       builder: (ctx) => AlertDialog(
-        title: const Text('Generation Complete'),
+        title: const Row(
+          children: [
+            Icon(Icons.check_circle_rounded, color: Colors.green, size: 26),
+            SizedBox(width: 8),
+            Text('Generation Successful!'),
+          ],
+        ),
         content: Text(
-          'Classes: ${result?['created']['classes'] ?? 0}\nCourses: ${result?['created']['courses'] ?? 0}\nRooms: ${result?['created']['rooms'] ?? 0}',
+          'Timetable generated and saved successfully!\n\n'
+          '📌 Classes/Schedules Created: ${result?['created']['classes'] ?? 0}\n'
+          '📚 Courses Mapped: ${result?['created']['courses'] ?? 0}\n'
+          '🏫 Rooms Allocated: ${result?['created']['rooms'] ?? 0}',
+          style: const TextStyle(fontSize: 14),
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('OK'),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF0F172A),
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () {
+              Navigator.pop(ctx);
+              Navigator.pop(context, true);
+            },
+            child: const Text('View Timetables'),
           ),
         ],
       ),

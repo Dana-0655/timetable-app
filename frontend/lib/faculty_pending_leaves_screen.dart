@@ -99,8 +99,8 @@ class _FacultyPendingLeavesScreenState
                         title: Text(req['faculty_name']),
                         trailing: ElevatedButton(
                           onPressed: () async {
+                            Navigator.pop(context);
                             await _confirmCover(leaveId, req['cover_req_id']);
-                            if (mounted) Navigator.pop(context);
                           },
                           child: const Text('Confirm'),
                         ),

@@ -573,243 +573,7 @@ def download_timetable_template():
     )
 
 # ===================================================================
-# 3. MULTI-SHEET PARSER + OR-TOOLS CP-SAT WORKER
-# ===================================================================
-
-def process_and_solve_job(app_context, job_id, college_id, semester_id, file_bytes):
-    with app_context:
-        job = Job.query.get(job_id)
-        try:
-            job.status = 'running'
-            job.progress_message = "Reading Excel sheets..."
-            db.session.commit()
-
-            # Read all 10 sheets into DataFrames
-            sheets = pd.read_excel(io.BytesIO(file_bytes), sheet_name=None)
-
-            df_classes = sheets.get("Classes", pd.DataFrame())
-            df_faculty = sheets.get("Faculty", pd.DataFrame())
-            df_courses = sheets.get("Courses", pd.DataFrame())
-            df_alloc = sheets.get("Faculty Allocation", pd.DataFrame())
-            df_rooms = sheets.get("Rooms", pd.DataFrame())
-            df_slots = sheets.get("Time Slots", pd.DataFrame())
-            df_fac_avail = sheets.get("Faculty Availability", pd.DataFrame())
-            df_room_avail = sheets.get("Room Availability", pd.DataFrame())
-            df_constraints = sheets.get("Constraints", pd.DataFrame())
-
-            created_counts = {"classes": 0, "faculty": 0, "rooms": 0, "courses": 0}
-
-            # 1. Database Entity Synchronization
-            job.progress_message = "Syncing database records..."
-            db.session.commit()
-
-            # Classes
-            class_map = {} # Class ID / Name -> Database Class Entity
-            for _, r in df_classes.iterrows():
-                c_name = str(r.get("Class ID", r.get("Section", ""))).strip()
-                if not c_name: continue
-                cls = Class.query.filter_by(college_id=college_id, class_name=c_name).first()
-                if not cls:
-                    cls = Class(college_id=college_id, class_name=c_name, semester_id=semester_id)
-                    db.session.add(cls)
-                    db.session.flush()
-                    created_counts["classes"] += 1
-                class_map[c_name] = cls
-
-            # Faculty
-            fac_map = {}
-            for _, r in df_faculty.iterrows():
-                f_id = str(r.get("Faculty ID", "")).strip()
-                f_email = str(r.get("Email", "")).strip()
-                f_name = str(r.get("Faculty Name", "")).strip()
-                if not f_id and not f_email: continue
-                fac = Faculty.query.filter_by(college_id=college_id, email=f_email).first() if f_email else None
-                if not fac:
-                    fac = Faculty(college_id=college_id, name=f_name, email=f_email)
-                    db.session.add(fac)
-                    db.session.flush()
-                    created_counts["faculty"] += 1
-                fac_map[f_id] = fac
-
-            # Rooms
-            room_map = {}
-            for _, r in df_rooms.iterrows():
-                r_id = str(r.get("Room ID", r.get("Room Name", ""))).strip()
-                if not r_id: continue
-                rm = Room.query.filter_by(college_id=college_id, room_name=r_id).first()
-                if not rm:
-                    rm = Room(college_id=college_id, room_name=r_id)
-                    db.session.add(rm)
-                    db.session.flush()
-                    created_counts["rooms"] += 1
-                room_map[r_id] = rm
-
-            # Courses
-            course_map = {}
-            for _, r in df_courses.iterrows():
-                c_code = str(r.get("Course Code", "")).strip()
-                c_name = str(r.get("Course Name", "")).strip()
-                c_type = str(r.get("Course Type", "Theory")).strip()
-                pps = int(r.get("Periods Per Session", 1))
-                if not c_code: continue
-                
-                # Default map to first available class if unlinked
-                default_class = list(class_map.values())[0] if class_map else None
-                course = Course.query.filter_by(course_code=c_code).first()
-                if not course:
-                    course = Course(
-                        class_id=default_class.class_id if default_class else None,
-                        course_name=c_name,
-                        course_code=c_code,
-                        periods_needed=int(r.get("Hours Per Week", 3))
-                    )
-                    db.session.add(course)
-                    db.session.flush()
-                    created_counts["courses"] += 1
-                course_map[c_code] = {
-                    "obj": course,
-                    "type": c_type,
-                    "pps": pps
-                }
-
-            db.session.commit()
-
-            # 2. Build CP-SAT Optimization Model
-            job.progress_message = "Configuring CP-SAT constraints..."
-            db.session.commit()
-
-            model = cp_model.CpModel()
-            days = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
-            periods = list(range(1, 7)) # 6 daily slots
-
-            # Parse time slot grid if supplied
-            if not df_slots.empty and "Day" in df_slots.columns:
-                days = list(df_slots["Day"].unique())
-                periods = list(df_slots["Period"].unique())
-
-            # Variables: x[alloc_index, day, period]
-            x = {}
-            allocations = []
-            for idx, r in df_alloc.iterrows():
-                f_id = str(r.get("Faculty ID", "")).strip()
-                c_code = str(r.get("Course Code", "")).strip()
-                cls_id = str(r.get("Class ID", "")).strip()
-                hrs = int(r.get("Hours Per Week", 3))
-
-                if c_code in course_map and cls_id in class_map:
-                    alloc_info = {
-                        "id": idx,
-                        "course_id": course_map[c_code]["obj"].course_id,
-                        "class_db_id": class_map[cls_id].class_id,
-                        "fac_db_id": fac_map[f_id].faculty_id if f_id in fac_map else None,
-                        "hours": hrs,
-                        "pps": course_map[c_code]["pps"],
-                        "type": course_map[c_code]["type"]
-                    }
-                    allocations.append(alloc_info)
-
-                    for d in days:
-                        for p in periods:
-                            x[idx, d, p] = model.NewBoolVar(f'x_{idx}_{d}_{p}')
-
-            # Constraint 1: Fulfill Required Weekly Hours per Allocation
-            for alloc in allocations:
-                a_id = alloc["id"]
-                model.Add(sum(x[a_id, d, p] for d in days for p in periods) == alloc["hours"])
-
-            # Constraint 2: Class Double-Booking Prevention
-            for cls_name, cls_obj in class_map.items():
-                cls_allocs = [a["id"] for a in allocations if a["class_db_id"] == cls_obj.class_id]
-                for d in days:
-                    for p in periods:
-                        model.Add(sum(x[a_id, d, p] for a_id in cls_allocs) <= 1)
-
-            # Constraint 3: Faculty Double-Booking Prevention
-            for f_id, fac_obj in fac_map.items():
-                fac_allocs = [a["id"] for a in allocations if a["fac_db_id"] == fac_obj.faculty_id]
-                for d in days:
-                    for p in periods:
-                        model.Add(sum(x[a_id, d, p] for a_id in fac_allocs) <= 1)
-
-            # Constraint 4: Faculty Unavailability Masks
-            for _, r in df_fac_avail.iterrows():
-                f_id = str(r.get("Faculty ID", "")).strip()
-                d = str(r.get("Day", "")).strip()
-                p = r.get("Period")
-                status = str(r.get("Availability", "")).lower()
-
-                if status in ["unavailable", "no", "off"] and f_id in fac_map:
-                    fac_obj = fac_map[f_id]
-                    fac_allocs = [a["id"] for a in allocations if a["fac_db_id"] == fac_obj.faculty_id]
-                    for a_id in fac_allocs:
-                        if (a_id, d, p) in x:
-                            model.Add(x[a_id, d, p] == 0)
-
-            # Constraint 5: Custom Sheet Rules (Constraints Tab)
-            soft_penalties = []
-            for _, r in df_constraints.iterrows():
-                c_type = str(r.get("Constraint Type", "")).strip()
-                d = str(r.get("Day", "")).strip()
-                p = r.get("Period")
-                priority = str(r.get("Priority", "Hard")).strip()
-
-                if c_type == "Avoid Period":
-                    for a in allocations:
-                        if (a["id"], d, p) in x:
-                            if priority == "Hard":
-                                model.Add(x[a["id"], d, p] == 0)
-                            else:
-                                soft_penalties.append(x[a["id"], d, p])
-
-            if soft_penalties:
-                model.Minimize(sum(soft_penalties))
-
-            # 3. Solve Model
-            job.progress_message = "Solving schedule via CP-SAT engine..."
-            db.session.commit()
-
-            solver = cp_model.CpSolver()
-            solver.parameters.max_time_in_seconds = 30.0
-            status = solver.Solve(model)
-
-            if status in (cp_model.FEASIBLE, cp_model.OPTIMAL):
-                # Clear old entries for relevant classes
-                all_class_ids = [c.class_id for c in class_map.values()]
-                delete_timetable_entries_cascade(class_ids=all_class_ids)
-
-                # Write generated schedule to Database
-                for alloc in allocations:
-                    a_id = alloc["id"]
-                    for d in days:
-                        for p in periods:
-                            if solver.Value(x[a_id, d, p]) == 1:
-                                entry = TimetableEntry(
-                                    class_id=alloc["class_db_id"],
-                                    course_id=alloc["course_id"],
-                                    faculty_id=alloc["fac_db_id"],
-                                    day_of_week=d,
-                                    period_number=p
-                                )
-                                db.session.add(entry)
-
-                job.status = 'success'
-                job.progress_message = "Timetable successfully generated from workbook!"
-                job.result = {"created": created_counts}
-                db.session.commit()
-
-            else:
-                job.status = 'failed'
-                job.error = "Could not find a valid schedule. Constraints are too strict or available time slots are overloaded."
-                db.session.commit()
-
-        except Exception as e:
-            db.session.rollback()
-            job.status = 'failed'
-            job.error = str(e)
-            db.session.commit()
-
-# ===================================================================
-# 4. ASYNC TRIGGER & STATUS ENDPOINTS
+# 3. ASYNC TRIGGER & STATUS ENDPOINTS
 # ===================================================================
 
 @app.route('/upload_and_generate_timetable_async', methods=['POST'])
@@ -2254,15 +2018,21 @@ def switch_semester():
 @app.route("/delete_semester", methods=["POST"])
 def delete_semester():
     data = request.get_json()
+    semester_id = data.get("semester_id")
 
-    semester = Semester.query.get(data["semester_id"])
+    semester = Semester.query.get(semester_id)
     if not semester:
         return jsonify({"error": "Semester not found"}), 404
 
     semester.is_deleted = True
-    db.session.commit()
 
-    return jsonify({"message": f"{semester.semester_name} deleted (soft delete)"})
+    # Safely clear timetable entries for classes in this deleted semester
+    classes = Class.query.filter_by(semester_id=semester_id).all()
+    for c in classes:
+        delete_timetable_entries_cascade(class_ids=[c.class_id])
+
+    db.session.commit()
+    return jsonify({"message": f"{semester.semester_name} deleted successfully!"})
 
 @app.route("/add_class", methods=["POST"])
 def add_class():
@@ -2303,13 +2073,56 @@ def add_class():
 @app.route("/delete_class", methods=["POST"])
 def delete_class():
     data = request.get_json()
-    class_obj = Class.query.get(data["class_id"])
+    class_id = data.get("class_id")
+    class_obj = Class.query.get(class_id)
     if not class_obj:
         return jsonify({"error": "Class not found"}), 404
 
+    # 1. Cascade delete all timetable entries & dependent leaves/swaps/covers
+    delete_timetable_entries_cascade(class_ids=[class_id])
+
+    # 2. Delete CourseFacultyRequests tied to courses in this class
+    course_ids = [c.course_id for c in Course.query.filter_by(class_id=class_id).all()]
+    if course_ids:
+        CourseFacultyRequest.query.filter(CourseFacultyRequest.course_id.in_(course_ids)).delete(synchronize_session=False)
+
+    # 3. Delete Course records in this class
+    Course.query.filter_by(class_id=class_id).delete(synchronize_session=False)
+
+    # 4. Delete CCRequests for this class
+    CCRequest.query.filter_by(class_id=class_id).delete(synchronize_session=False)
+
+    # 5. Delete Holidays for this class
+    Holiday.query.filter_by(class_id=class_id).delete(synchronize_session=False)
+
+    # 6. Delete TimetableConfig for this class
+    TimetableConfig.query.filter_by(class_id=class_id).delete(synchronize_session=False)
+
+    # 7. Delete Class record
     db.session.delete(class_obj)
     db.session.commit()
     return jsonify({"message": "Class deleted successfully!"})
+
+@app.route("/delete_course", methods=["POST"])
+def delete_course():
+    data = request.get_json()
+    course_id = data.get("course_id")
+    course = Course.query.get(course_id)
+    if not course:
+        return jsonify({"error": "Course not found"}), 404
+
+    # Clear timetable entries referencing this course
+    entries = TimetableEntry.query.filter_by(course_id=course_id).all()
+    for e in entries:
+        e.course_id = None
+        e.entry_type = 'free'
+
+    # Delete requests tied to this course
+    CourseFacultyRequest.query.filter_by(course_id=course_id).delete(synchronize_session=False)
+
+    db.session.delete(course)
+    db.session.commit()
+    return jsonify({"message": "Course deleted successfully!"})
 
 @app.route("/generate_schedule", methods=["POST"])
 def generate_schedule():
