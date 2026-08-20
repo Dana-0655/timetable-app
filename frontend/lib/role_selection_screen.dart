@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'admin_login_screen.dart';
 import 'faculty_login_screen.dart';
 import 'student_department_screen.dart';
+import 'student_timetable_screen.dart';
 import 'session_manager.dart';
 import 'main.dart';
 
@@ -20,6 +21,18 @@ class RoleSelectionScreen extends StatefulWidget {
 
 class _RoleSelectionScreenState extends State<RoleSelectionScreen> {
   int? _pressedIndex;
+  Map<String, dynamic>? _pinnedClass;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPinnedClass();
+  }
+
+  Future<void> _loadPinnedClass() async {
+    final pinned = await SessionManager.getDefaultClass();
+    if (mounted) setState(() => _pinnedClass = pinned);
+  }
 
   final List<_RoleData> _roles = const [
     _RoleData('Admin', Icons.admin_panel_settings_rounded, Color(0xFF1565C0)),
@@ -111,14 +124,26 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen> {
                             ),
                           );
                         } else if (role.label == 'Student') {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => StudentDepartmentScreen(
-                                collegeId: widget.collegeId,
+                          if (_pinnedClass != null) {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => StudentTimetableScreen(
+                                  classId: _pinnedClass!['classId'],
+                                  className: _pinnedClass!['className'],
+                                ),
                               ),
-                            ),
-                          );
+                            ).then((_) => _loadPinnedClass());
+                          } else {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => StudentDepartmentScreen(
+                                  collegeId: widget.collegeId,
+                                ),
+                              ),
+                            ).then((_) => _loadPinnedClass());
+                          }
                         }
                       },
                       child: AnimatedScale(
@@ -131,7 +156,7 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen> {
                             borderRadius: BorderRadius.circular(16),
                             boxShadow: [
                               BoxShadow(
-                                color: Colors.black.withOpacity(0.06),
+                                color: Colors.black.withValues(alpha: 0.06),
                                 blurRadius: 12,
                                 offset: const Offset(0, 4),
                               ),
@@ -143,7 +168,7 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen> {
                                 width: 52,
                                 height: 52,
                                 decoration: BoxDecoration(
-                                  color: role.color.withOpacity(0.12),
+                                  color: role.color.withValues(alpha: 0.12),
                                   borderRadius: BorderRadius.circular(14),
                                 ),
                                 child: Icon(
@@ -154,12 +179,41 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen> {
                               ),
                               const SizedBox(width: 16),
                               Expanded(
-                                child: Text(
-                                  role.label,
-                                  style: const TextStyle(
-                                    fontSize: 17,
-                                    fontWeight: FontWeight.w600,
-                                  ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      role.label,
+                                      style: const TextStyle(
+                                        fontSize: 17,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    if (role.label == 'Student' && _pinnedClass != null) ...[
+                                      const SizedBox(height: 3),
+                                      Row(
+                                        children: [
+                                          const Icon(
+                                            Icons.push_pin_rounded,
+                                            size: 13,
+                                            color: Color(0xFFEF6C00),
+                                          ),
+                                          const SizedBox(width: 4),
+                                          Expanded(
+                                            child: Text(
+                                              '${_pinnedClass!['className']}',
+                                              style: const TextStyle(
+                                                fontSize: 12,
+                                                color: Color(0xFFEF6C00),
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  ],
                                 ),
                               ),
                               const Icon(

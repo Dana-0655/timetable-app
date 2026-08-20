@@ -1147,58 +1147,151 @@ class _VercelBarsTimetableWidgetState extends State<VercelBarsTimetableWidget> {
                         ),
                       ],
                     ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    child: Stack(
                       children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 3,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFF0F172A),
-                                    borderRadius: BorderRadius.circular(6),
-                                  ),
-                                  child: Text(
-                                    'PERIOD $periodNo',
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.bold,
-                                      letterSpacing: 0.5,
+                                Row(
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 3,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFF0F172A),
+                                        borderRadius: BorderRadius.circular(6),
+                                      ),
+                                      child: Text(
+                                        'PERIOD $periodNo',
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.bold,
+                                          letterSpacing: 0.5,
+                                        ),
+                                      ),
                                     ),
-                                  ),
+                                    if (startTime != '00:00') ...[
+                                      const SizedBox(width: 8),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                          vertical: 3,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFF1F5F9),
+                                          borderRadius: BorderRadius.circular(6),
+                                        ),
+                                        child: Row(
+                                          children: [
+                                            const Icon(
+                                              Icons.access_time_rounded,
+                                              size: 12,
+                                              color: Color(0xFF64748B),
+                                            ),
+                                            const SizedBox(width: 4),
+                                            Text(
+                                              '$startTime - $endTime',
+                                              style: const TextStyle(
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.w600,
+                                                color: Color(0xFF334155),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ],
                                 ),
-                                if (startTime != '00:00') ...[
-                                  const SizedBox(width: 8),
+                                if (isSelectedAsSource)
                                   Container(
                                     padding: const EdgeInsets.symmetric(
                                       horizontal: 8,
-                                      vertical: 3,
+                                      vertical: 4,
                                     ),
                                     decoration: BoxDecoration(
-                                      color: const Color(0xFFF1F5F9),
+                                      color: const Color(0xFF0EA5E9),
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: const Text(
+                                      'SELECTED',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  )
+                                else
+                                  _buildStatusBadge(
+                                    statusColor,
+                                    facultyName,
+                                    swapId: swapId,
+                                  ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+
+                            Text(
+                              courseName,
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF0F172A),
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+
+                            Row(
+                              children: [
+                                const Icon(
+                                  Icons.person_outline_rounded,
+                                  size: 16,
+                                  color: Color(0xFF64748B),
+                                ),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: Text(
+                                    statusColor == 'confirmed_cover'
+                                        ? 'Substitute - $facultyName'
+                                        : facultyName,
+                                    style: const TextStyle(
+                                      fontSize: 13,
+                                      color: Color(0xFF475569),
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ),
+                                if (widget.roomNo.isNotEmpty) ...[
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 4,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFEDE9FE),
                                       borderRadius: BorderRadius.circular(6),
                                     ),
                                     child: Row(
                                       children: [
                                         const Icon(
-                                          Icons.access_time_rounded,
+                                          Icons.meeting_room_rounded,
                                           size: 12,
-                                          color: Color(0xFF64748B),
+                                          color: Color(0xFF6D28D9),
                                         ),
                                         const SizedBox(width: 4),
                                         Text(
-                                          '$startTime - $endTime',
+                                          'Room ${widget.roomNo}',
                                           style: const TextStyle(
                                             fontSize: 11,
-                                            fontWeight: FontWeight.w600,
-                                            color: Color(0xFF334155),
+                                            fontWeight: FontWeight.bold,
+                                            color: Color(0xFF6D28D9),
                                           ),
                                         ),
                                       ],
@@ -1207,95 +1300,18 @@ class _VercelBarsTimetableWidgetState extends State<VercelBarsTimetableWidget> {
                                 ],
                               ],
                             ),
-                            if (isSelectedAsSource)
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 8,
-                                  vertical: 4,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFF0EA5E9),
-                                  borderRadius: BorderRadius.circular(6),
-                                ),
-                                child: const Text(
-                                  'SELECTED',
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              )
-                            else
-                              _buildStatusBadge(
-                                statusColor,
-                                facultyName,
-                                swapId: swapId,
-                              ),
                           ],
                         ),
-                        const SizedBox(height: 12),
-
-                        Text(
-                          courseName,
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF0F172A),
+                        if (statusColor == 'confirmed_cover')
+                          Positioned(
+                            top: 0,
+                            right: 0,
+                            child: Icon(
+                              Icons.assignment_ind_rounded,
+                              size: 18,
+                              color: Colors.green.shade700,
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 8),
-
-                        Row(
-                          children: [
-                            const Icon(
-                              Icons.person_outline_rounded,
-                              size: 16,
-                              color: Color(0xFF64748B),
-                            ),
-                            const SizedBox(width: 6),
-                            Expanded(
-                              child: Text(
-                                facultyName,
-                                style: const TextStyle(
-                                  fontSize: 13,
-                                  color: Color(0xFF475569),
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ),
-                            if (widget.roomNo.isNotEmpty) ...[
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 8,
-                                  vertical: 4,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFEDE9FE),
-                                  borderRadius: BorderRadius.circular(6),
-                                ),
-                                child: Row(
-                                  children: [
-                                    const Icon(
-                                      Icons.meeting_room_rounded,
-                                      size: 12,
-                                      color: Color(0xFF6D28D9),
-                                    ),
-                                    const SizedBox(width: 4),
-                                    Text(
-                                      'Room ${widget.roomNo}',
-                                      style: const TextStyle(
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.bold,
-                                        color: Color(0xFF6D28D9),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ],
-                        ),
                       ],
                     ),
                   ),

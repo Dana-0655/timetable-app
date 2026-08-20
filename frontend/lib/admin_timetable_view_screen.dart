@@ -32,7 +32,6 @@ class _AdminTimetableViewScreenState extends State<AdminTimetableViewScreen> {
   Map<String, dynamic> _classInfo = {};
   List<dynamic> _entries = [];
   Map<int, int> _swapColorIndex = {};
-  bool _isLoadingInfo = true;
 
   @override
   void initState() {
@@ -64,9 +63,7 @@ class _AdminTimetableViewScreenState extends State<AdminTimetableViewScreen> {
     } catch (_) {}
 
     if (mounted) {
-      setState(() {
-        _isLoadingInfo = false;
-      });
+      setState(() {});
     }
   }
 
@@ -111,7 +108,7 @@ class _AdminTimetableViewScreenState extends State<AdminTimetableViewScreen> {
               borderRadius: BorderRadius.circular(16),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.15),
+                  color: Colors.black.withValues(alpha: 0.15),
                   blurRadius: 8,
                   offset: const Offset(0, 4),
                 ),

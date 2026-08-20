@@ -1147,6 +1147,21 @@ class _WeeklyMatrixGridWidgetState extends State<WeeklyMatrixGridWidget> {
                                                   color: Colors.red.shade700,
                                                 ),
                                               ),
+                                            ] else if (entry['status_color'] == 'confirmed_cover') ...[
+                                              const SizedBox(height: 2),
+                                              Text(
+                                                widget.userRole == 'faculty_my_schedule'
+                                                    ? '${entry['class_name'] ?? ''}\nSubstitute - ${entry['faculty_name'] ?? ''}'
+                                                    : 'Substitute - ${entry['faculty_name'] ?? ''}',
+                                                maxLines: 2,
+                                                overflow: TextOverflow.ellipsis,
+                                                textAlign: TextAlign.center,
+                                                style: TextStyle(
+                                                  fontSize: 9,
+                                                  fontWeight: FontWeight.bold,
+                                                  color: Colors.green.shade900,
+                                                ),
+                                              ),
                                             ] else if (faculty.isNotEmpty &&
                                                 !isBreak) ...[
                                               const SizedBox(height: 2),
@@ -1204,6 +1219,23 @@ class _WeeklyMatrixGridWidgetState extends State<WeeklyMatrixGridWidget> {
                                               ),
                                               child: const Icon(
                                                 Icons.swap_horiz,
+                                                size: 10,
+                                                color: Colors.white,
+                                              ),
+                                            ),
+                                          ),
+                                        if (entry['status_color'] == 'confirmed_cover')
+                                          Positioned(
+                                            top: 0,
+                                            right: 0,
+                                            child: Container(
+                                              padding: const EdgeInsets.all(2),
+                                              decoration: BoxDecoration(
+                                                color: Colors.green.shade700,
+                                                shape: BoxShape.circle,
+                                              ),
+                                              child: const Icon(
+                                                Icons.assignment_ind_rounded,
                                                 size: 10,
                                                 color: Colors.white,
                                               ),

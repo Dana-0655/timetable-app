@@ -138,7 +138,7 @@ class _BrowseTimetablesScreenState extends State<BrowseTimetablesScreen> {
                         horizontal: 16,
                       ),
                       filled: true,
-                      fillColor: Colors.blue.shade50.withOpacity(0.5),
+                      fillColor: Colors.blue.shade50.withValues(alpha: 0.5),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
                         borderSide: BorderSide(color: Colors.blue.shade200),

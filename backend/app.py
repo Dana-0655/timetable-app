@@ -213,6 +213,42 @@ class Room(db.Model):
     room_type = db.Column(db.String(50), default='Lecture')  # 'Lecture', 'Lab', etc.
     capacity = db.Column(db.Integer, nullable=True)
 
+def delete_timetable_entries_cascade(class_ids=None, entry_ids=None):
+    """
+    Safely delete TimetableEntry records and their dependent rows
+    (SwapRequest, CoverRequest, Notification, Leave) to avoid foreign key violations.
+    """
+    if class_ids is not None:
+        if not class_ids:
+            return
+        entries = TimetableEntry.query.filter(TimetableEntry.class_id.in_(class_ids)).all()
+        target_entry_ids = [e.entry_id for e in entries]
+    elif entry_ids is not None:
+        target_entry_ids = list(entry_ids)
+    else:
+        return
+
+    if not target_entry_ids:
+        return
+
+    # 1. Delete dependent SwapRequests where entry is requester or target
+    SwapRequest.query.filter(
+        (SwapRequest.requester_entry_id.in_(target_entry_ids)) |
+        (SwapRequest.target_entry_id.in_(target_entry_ids))
+    ).delete(synchronize_session=False)
+
+    # 2. Find leaves linked to these entries
+    leaves = Leave.query.filter(Leave.entry_id.in_(target_entry_ids)).all()
+    leave_ids = [l.leave_id for l in leaves]
+    if leave_ids:
+        # Delete dependent CoverRequests & Notifications
+        CoverRequest.query.filter(CoverRequest.leave_id.in_(leave_ids)).delete(synchronize_session=False)
+        Notification.query.filter(Notification.leave_id.in_(leave_ids)).delete(synchronize_session=False)
+        Leave.query.filter(Leave.leave_id.in_(leave_ids)).delete(synchronize_session=False)
+
+    # 3. Delete the timetable entries themselves
+    TimetableEntry.query.filter(TimetableEntry.entry_id.in_(target_entry_ids)).delete(synchronize_session=False)
+
 def reset_weekly_swaps():
     with app.app_context():
         active_swaps = SwapRequest.query.filter_by(status="accepted").all()
@@ -301,8 +337,11 @@ def check_pending_leaves():
 
             if now >= reminder_time and now < class_datetime:
                 faculty = Faculty.query.get(leave.faculty_id)
-                print(f"[REMINDER] Faculty {faculty.name}: You haven't assigned anyone for {entry.day_of_week} Period {entry.period_no} at {class_datetime.strftime('%H:%M')}.")
-                print(f"[REMINDER TO CC] {faculty.name} is on leave and hasn't assigned a substitute for {entry.day_of_week} Period {entry.period_no}. Class starts at {class_datetime.strftime('%H:%M')}.")
+                class_obj = Class.query.get(entry.class_id)
+                class_label = f"{class_obj.year} - {class_obj.department} - {class_obj.section}" if class_obj else "Class"
+
+                print(f"[REMINDER] Faculty {faculty.name if faculty else 'Faculty'}: You haven't assigned anyone for {entry.day_of_week} Period {entry.period_no} at {class_datetime.strftime('%H:%M')}.")
+                print(f"[REMINDER TO CC] {faculty.name if faculty else 'Faculty'} is on leave and hasn't assigned a substitute for {entry.day_of_week} Period {entry.period_no}. Class starts at {class_datetime.strftime('%H:%M')}.")
 
                 new_notification = Notification(
                     leave_id=leave.leave_id,
@@ -310,6 +349,23 @@ def check_pending_leaves():
                     sent_to_cc=True
                 )
                 db.session.add(new_notification)
+
+                # Send in-app notification to Faculty on leave
+                if faculty:
+                    create_notification(
+                        "faculty", faculty.faculty_id,
+                        f"Reminder: You haven't assigned a substitute for {class_label}, {entry.day_of_week} Period {entry.period_no}.",
+                        "leave_reminder", reference_id=leave.leave_id
+                    )
+
+                # Send in-app notification to Class Coordinator (CC)
+                if class_obj and class_obj.cc_faculty_id:
+                    create_notification(
+                        "faculty", class_obj.cc_faculty_id,
+                        f"Reminder: {faculty.name if faculty else 'Faculty'} is on leave and hasn't assigned a substitute for {class_label}, {entry.day_of_week} Period {entry.period_no}.",
+                        "leave_reminder", reference_id=leave.leave_id
+                    )
+
                 db.session.commit()
             else:
                 print(f"[DEBUG] Not in reminder window yet.")
@@ -719,7 +775,7 @@ def process_and_solve_job(app_context, job_id, college_id, semester_id, file_byt
             if status in (cp_model.FEASIBLE, cp_model.OPTIMAL):
                 # Clear old entries for relevant classes
                 all_class_ids = [c.class_id for c in class_map.values()]
-                TimetableEntry.query.filter(TimetableEntry.class_id.in_(all_class_ids)).delete(synchronize_session=False)
+                delete_timetable_entries_cascade(class_ids=all_class_ids)
 
                 # Write generated schedule to Database
                 for alloc in allocations:
@@ -1007,7 +1063,7 @@ def process_and_solve_job(app_ctx, job_id, college_id, semester_id, file_bytes):
                 # Clear old entries for relevant synced classes to avoid duplicate timetable entries
                 synced_class_ids = [c.class_id for c in class_map.values()]
                 if synced_class_ids:
-                    TimetableEntry.query.filter(TimetableEntry.class_id.in_(synced_class_ids)).delete(synchronize_session=False)
+                    delete_timetable_entries_cascade(class_ids=synced_class_ids)
                     db.session.commit()
 
                 # Day name converter for day_of_week MON, TUE, etc.
@@ -2469,7 +2525,7 @@ def delete_timetable_entry():
         return jsonify({"error": "Entry not found"}), 404
 
     course_id = entry.course_id
-    db.session.delete(entry)
+    delete_timetable_entries_cascade(entry_ids=[entry.entry_id])
     db.session.flush()
 
     if course_id:
@@ -2491,11 +2547,14 @@ def delete_day_schedule():
 
     entries = TimetableEntry.query.filter_by(class_id=class_id, day_of_week=day_of_week).all()
     course_ids_to_check = set()
+    entry_ids = [entry.entry_id for entry in entries]
 
     for entry in entries:
         if entry.course_id:
             course_ids_to_check.add(entry.course_id)
-        db.session.delete(entry)
+
+    if entry_ids:
+        delete_timetable_entries_cascade(entry_ids=entry_ids)
 
     db.session.flush()
 
@@ -2549,6 +2608,20 @@ def mark_notification_read():
         db.session.commit()
     return jsonify({"message": "Marked as read"})
 
+@app.route("/mark_all_notifications_read", methods=["POST"])
+def mark_all_notifications_read():
+    data = request.get_json()
+    recipient_type = data.get("recipient_type")
+    recipient_id = data.get("recipient_id")
+    if recipient_type and recipient_id:
+        UserNotification.query.filter_by(
+            recipient_type=recipient_type,
+            recipient_id=recipient_id,
+            is_read=False
+        ).update({UserNotification.is_read: True})
+        db.session.commit()
+    return jsonify({"message": "All marked as read"})
+
 @app.route("/course_detail/<int:course_id>", methods=["GET"])
 def get_course_detail(course_id):
     course = Course.query.get(course_id)
@@ -2597,72 +2670,86 @@ def remove_cc():
 
 @app.route("/class_updates/<int:class_id>", methods=["GET"])
 def get_class_updates(class_id):
+    class_obj = Class.query.get(class_id)
+    if not class_obj:
+        return jsonify([])
+
     entries = TimetableEntry.query.filter_by(class_id=class_id).all()
     entry_ids = [e.entry_id for e in entries]
 
     updates = []
 
-    # Confirmed cover requests (substitute assigned)
-    confirmed_leaves = Leave.query.filter(
-        Leave.entry_id.in_(entry_ids),
-        Leave.status == "confirmed"
-    ).order_by(Leave.created_at.desc()).limit(10).all()
-
-    for leave in confirmed_leaves:
-        entry = TimetableEntry.query.get(leave.entry_id)
-        original = Faculty.query.get(leave.faculty_id)
-        substitute = Faculty.query.get(leave.confirmed_faculty_id) if leave.confirmed_faculty_id else None
-        course = Course.query.get(entry.course_id) if entry.course_id else None
-
-        if substitute and course:
-            updates.append({
-                "type": "substitute_confirmed",
-                "message": f"{original.name} is absent for {course.course_name} "
-                           f"({entry.day_of_week} Period {entry.period_no}). "
-                           f"{substitute.name} will take the class.",
-                "created_at": leave.created_at.strftime("%Y-%m-%d %H:%M") if leave.created_at else ""
-            })
-
-    # Open leaves with no substitute yet (free period)
-    open_leaves = Leave.query.filter(
-        Leave.entry_id.in_(entry_ids),
-        Leave.status.in_(["open", "pending_requests"])
-    ).order_by(Leave.created_at.desc()).limit(10).all()
-
-    for leave in open_leaves:
-        entry = TimetableEntry.query.get(leave.entry_id)
-        original = Faculty.query.get(leave.faculty_id)
-        course = Course.query.get(entry.course_id) if entry.course_id else None
-
-        if course:
-            updates.append({
-                "type": "free_period",
-                "message": f"{original.name} is absent for {course.course_name} "
-                           f"({entry.day_of_week} Period {entry.period_no}). "
-                           f"No substitute assigned yet.",
-                "created_at": leave.created_at.strftime("%Y-%m-%d %H:%M") if leave.created_at else ""
-            })
-
-    # Swapped periods
-    swaps = SwapRequest.query.filter(
-        db.or_(
-            SwapRequest.requester_entry_id.in_(entry_ids),
-            SwapRequest.target_entry_id.in_(entry_ids)
-        ),
-        SwapRequest.status == "accepted"
-    ).order_by(SwapRequest.resolved_at.desc()).limit(10).all()
-
-    for swap in swaps:
-        requester = Faculty.query.get(swap.requester_faculty_id)
-        target = Faculty.query.get(swap.target_faculty_id)
+    # 1. Upcoming and recent College Holidays
+    holidays = Holiday.query.filter_by(college_id=class_obj.college_id).order_by(Holiday.holiday_date.desc()).limit(5).all()
+    for h in holidays:
         updates.append({
-            "type": "swap",
-            "message": f"Period swap confirmed between {requester.name} and {target.name}.",
-            "created_at": swap.resolved_at.strftime("%Y-%m-%d %H:%M") if swap.resolved_at else ""
+            "type": "holiday",
+            "title": f"Holiday Notice ({h.holiday_date})",
+            "message": f"{h.reason or 'College Holiday'} on {h.holiday_date}.",
+            "created_at": f"{h.holiday_date} 00:00"
         })
 
+    # 2. Confirmed cover requests (substitute assigned)
+    if entry_ids:
+        confirmed_leaves = Leave.query.filter(
+            Leave.entry_id.in_(entry_ids),
+            Leave.status == "confirmed"
+        ).order_by(Leave.created_at.desc()).limit(10).all()
+
+        for leave in confirmed_leaves:
+            entry = TimetableEntry.query.get(leave.entry_id)
+            original = Faculty.query.get(leave.faculty_id)
+            substitute = Faculty.query.get(leave.confirmed_faculty_id) if leave.confirmed_faculty_id else None
+            course = Course.query.get(entry.course_id) if entry and entry.course_id else None
+
+            if substitute and course:
+                updates.append({
+                    "type": "substitute_confirmed",
+                    "title": "Substitute Assigned",
+                    "message": f"{original.name} is on leave for {course.course_name} ({entry.day_of_week} Period {entry.period_no}). {substitute.name} will take the class.",
+                    "created_at": leave.created_at.strftime("%Y-%m-%d %H:%M") if leave.created_at else ""
+                })
+
+        # 3. Open leaves with no substitute yet (free period)
+        open_leaves = Leave.query.filter(
+            Leave.entry_id.in_(entry_ids),
+            Leave.status.in_(["open", "pending_requests"])
+        ).order_by(Leave.created_at.desc()).limit(10).all()
+
+        for leave in open_leaves:
+            entry = TimetableEntry.query.get(leave.entry_id)
+            original = Faculty.query.get(leave.faculty_id)
+            course = Course.query.get(entry.course_id) if entry and entry.course_id else None
+
+            if course and original:
+                updates.append({
+                    "type": "free_period",
+                    "title": "Faculty on Leave",
+                    "message": f"{original.name} is on leave for {course.course_name} ({entry.day_of_week} Period {entry.period_no}). Free period or substitute pending.",
+                    "created_at": leave.created_at.strftime("%Y-%m-%d %H:%M") if leave.created_at else ""
+                })
+
+        # 4. Swapped periods
+        swaps = SwapRequest.query.filter(
+            db.or_(
+                SwapRequest.requester_entry_id.in_(entry_ids),
+                SwapRequest.target_entry_id.in_(entry_ids)
+            ),
+            SwapRequest.status == "accepted"
+        ).order_by(SwapRequest.resolved_at.desc()).limit(10).all()
+
+        for swap in swaps:
+            requester = Faculty.query.get(swap.requester_faculty_id)
+            target = Faculty.query.get(swap.target_faculty_id)
+            updates.append({
+                "type": "swap",
+                "title": "Class Swapped",
+                "message": f"Period swap confirmed between {requester.name} and {target.name}.",
+                "created_at": swap.resolved_at.strftime("%Y-%m-%d %H:%M") if swap.resolved_at else ""
+            })
+
     # Sort all combined updates by time, most recent first
-    updates.sort(key=lambda x: x["created_at"], reverse=True)
+    updates.sort(key=lambda x: x.get("created_at", ""), reverse=True)
 
     return jsonify(updates[:15])
 
@@ -2960,42 +3047,116 @@ def invite_substitute():
     class_obj = Class.query.get(entry.class_id)
     course = Course.query.get(entry.course_id) if entry.course_id else None
 
-    # Directly assigning someone supersedes any pending volunteer offers —
-    # reject those and let those volunteers know the slot's been filled.
-    pending_covers = CoverRequest.query.filter_by(
-        leave_id=leave.leave_id, status="pending"
-    ).all()
-    for cr in pending_covers:
-        cr.status = "rejected"
-        if cr.requesting_faculty_id != faculty.faculty_id:
-            volunteer = Faculty.query.get(cr.requesting_faculty_id)
-            create_notification(
-                "faculty", volunteer.faculty_id,
-                f"The {class_obj.year} - {class_obj.department} - {class_obj.section}, "
-                f"{entry.day_of_week} Period {entry.period_no} slot was assigned "
-                f"to someone else.",
-                "cover_request"
-            )
+    # Check if there is already a CoverRequest for this faculty on this leave
+    existing_req = CoverRequest.query.filter_by(
+        leave_id=leave.leave_id,
+        requesting_faculty_id=faculty.faculty_id
+    ).first()
 
-    leave.status = "confirmed"
-    leave.confirmed_faculty_id = faculty.faculty_id
-    leave.confirmed_by_role = "faculty"
+    if not existing_req:
+        existing_req = CoverRequest(
+            leave_id=leave.leave_id,
+            requesting_faculty_id=faculty.faculty_id,
+            status="invited"
+        )
+        db.session.add(existing_req)
+        db.session.commit()
+    else:
+        existing_req.status = "invited"
+        db.session.commit()
 
-    entry.status_color = "confirmed_cover"
-
+    leave.status = "pending_requests"
     db.session.commit()
 
     original_faculty = Faculty.query.get(leave.faculty_id)
     create_notification(
         "faculty", faculty.faculty_id,
-        f"{original_faculty.name} asked you to cover "
+        f"{original_faculty.name} invited you to cover "
         f"{class_obj.year} - {class_obj.department} - {class_obj.section}, "
         f"{entry.day_of_week} Period {entry.period_no}"
         f"{f' ({course.course_name})' if course else ''}.",
-        "cover_confirmed"
+        "substitute_invite", reference_id=existing_req.cover_req_id
     )
 
-    return jsonify({"message": f"{faculty.name} has been assigned to cover this period!"})
+    return jsonify({"message": f"Invitation request sent to {faculty.name}!"})
+
+@app.route("/resolve_substitute_invite", methods=["POST"])
+def resolve_substitute_invite():
+    data = request.get_json()
+    cover_req_id = data["cover_req_id"]
+    decision = data["decision"] # 'accepted' or 'rejected'
+
+    cover_req = CoverRequest.query.get(cover_req_id)
+    if not cover_req:
+        return jsonify({"error": "Request not found"}), 404
+
+    leave = Leave.query.get(cover_req.leave_id)
+    if not leave:
+        return jsonify({"error": "Leave not found"}), 404
+
+    entry = TimetableEntry.query.get(leave.entry_id)
+    class_obj = Class.query.get(entry.class_id)
+    course = Course.query.get(entry.course_id) if entry.course_id else None
+
+    substitute = Faculty.query.get(cover_req.requesting_faculty_id)
+    original_faculty = Faculty.query.get(leave.faculty_id)
+
+    if decision == "accepted":
+        if leave.status == "confirmed":
+            return jsonify({"error": "This leave is already confirmed"}), 400
+
+        cover_req.status = "accepted"
+
+        # Reject other cover requests for this leave
+        other_requests = CoverRequest.query.filter(
+            CoverRequest.leave_id == leave.leave_id,
+            CoverRequest.cover_req_id != cover_req.cover_req_id
+        ).all()
+        for r in other_requests:
+            r.status = "rejected"
+            if r.status == "pending":
+                vol = Faculty.query.get(r.requesting_faculty_id)
+                if vol:
+                    create_notification(
+                        "faculty", vol.faculty_id,
+                        f"The {class_obj.year} - {class_obj.department} - {class_obj.section}, "
+                        f"{entry.day_of_week} Period {entry.period_no} slot was assigned to someone else.",
+                        "cover_request"
+                    )
+
+        leave.status = "confirmed"
+        leave.confirmed_faculty_id = substitute.faculty_id
+        leave.confirmed_by_role = "faculty"
+
+        entry.status_color = "confirmed_cover"
+
+        db.session.commit()
+
+        # Send confirmation notification to TOC faculty (original absent faculty)
+        create_notification(
+            "faculty", original_faculty.faculty_id,
+            f"{substitute.name} accepted your invite to cover "
+            f"{class_obj.year} - {class_obj.department} - {class_obj.section}, "
+            f"{entry.day_of_week} Period {entry.period_no}"
+            f"{f' ({course.course_name})' if course else ''}.",
+            "cover_confirmed"
+        )
+        return jsonify({"message": "Invitation accepted successfully!"})
+
+    else: # rejected
+        cover_req.status = "rejected"
+        db.session.commit()
+
+        # Send decline notification to original faculty
+        create_notification(
+            "faculty", original_faculty.faculty_id,
+            f"{substitute.name} declined your invite to cover "
+            f"{class_obj.year} - {class_obj.department} - {class_obj.section}, "
+            f"{entry.day_of_week} Period {entry.period_no}"
+            f"{f' ({course.course_name})' if course else ''}.",
+            "cover_declined"
+        )
+        return jsonify({"message": "Invitation declined."})
 
 @app.route("/class_info/<int:class_id>", methods=["GET"])
 def get_class_info(class_id):
