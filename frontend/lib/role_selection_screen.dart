@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'admin_login_screen.dart';
 import 'faculty_login_screen.dart';
 import 'student_department_screen.dart';
+import 'session_manager.dart';
+import 'main.dart';
 
 class RoleSelectionScreen extends StatefulWidget {
   final String collegeCode;
@@ -34,6 +36,24 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen> {
         elevation: 0,
         foregroundColor: Colors.black87,
         title: Text('Code: ${widget.collegeCode}'),
+        actions: [
+          TextButton.icon(
+            onPressed: () async {
+              await SessionManager.clearCollegeCode();
+              if (context.mounted) {
+                Navigator.pushAndRemoveUntil(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const WelcomeScreen(),
+                  ),
+                  (route) => false,
+                );
+              }
+            },
+            icon: const Icon(Icons.swap_horiz, size: 18),
+            label: const Text('Change Code'),
+          ),
+        ],
       ),
       body: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 24),

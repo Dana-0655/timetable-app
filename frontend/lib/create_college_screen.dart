@@ -58,6 +58,10 @@ class _CreateCollegeScreenState extends State<CreateCollegeScreen> {
       final data = jsonDecode(response.body);
 
       if (response.statusCode == 200) {
+        await SessionManager.saveCollegeCode(
+          _collegeCodeController.text.trim(),
+          data['college_id'],
+        );
         await SessionManager.saveAdminSession(
           data['admin_id'],
           data['admin_name'],

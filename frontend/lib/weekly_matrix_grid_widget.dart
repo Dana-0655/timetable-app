@@ -17,6 +17,8 @@ class WeeklyMatrixGridWidget extends StatefulWidget {
   final bool canEdit;
   final VoidCallback? onTimetableChanged;
   final Map<int, int> swapColorIndex;
+  final Function(dynamic entry)? onCellTap;
+  final List<dynamic>? entries;
 
   const WeeklyMatrixGridWidget({
     super.key,
@@ -27,6 +29,8 @@ class WeeklyMatrixGridWidget extends StatefulWidget {
     required this.swapColorIndex,
     this.canEdit = true,
     this.onTimetableChanged,
+    this.onCellTap,
+    this.entries,
   });
 
   @override
@@ -57,7 +61,24 @@ class _WeeklyMatrixGridWidgetState extends State<WeeklyMatrixGridWidget> {
   @override
   void initState() {
     super.initState();
-    _fetchTimetable();
+    if (widget.entries != null) {
+      _entries = widget.entries!;
+      _isLoading = false;
+      _fetchHolidays();
+    } else {
+      _fetchTimetable();
+    }
+  }
+
+  @override
+  void didUpdateWidget(WeeklyMatrixGridWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.entries != null) {
+      setState(() {
+        _entries = widget.entries!;
+        _isLoading = false;
+      });
+    }
   }
 
   Future<void> _fetchTimetable() async {
@@ -67,7 +88,9 @@ class _WeeklyMatrixGridWidgetState extends State<WeeklyMatrixGridWidget> {
   }
 
   Future<void> _fetchEntries() async {
-    final url = Uri.parse('$_kApiBase/timetable/${widget.classId}');
+    final url = widget.userRole == 'faculty_my_schedule'
+        ? Uri.parse('$_kApiBase/faculty_timetable/${widget.currentFacultyId}')
+        : Uri.parse('$_kApiBase/timetable/${widget.classId}');
     try {
       final response = await http.get(url);
       if (response.statusCode == 200) {
@@ -77,6 +100,7 @@ class _WeeklyMatrixGridWidgetState extends State<WeeklyMatrixGridWidget> {
   }
 
   Future<void> _fetchHolidays() async {
+    if (widget.classId == 0) return;
     final url = Uri.parse(
       '$_kApiBase/holidays_for_class_week/${widget.classId}',
     );
@@ -136,6 +160,73 @@ class _WeeklyMatrixGridWidgetState extends State<WeeklyMatrixGridWidget> {
     }
   }
 
+  void _confirmMarkFacultyDayLeave(String dayCode) {
+    final isoDate = DateHelpers.isoForDayCode(dayCode, weekOffset: _weekOffset);
+    final dayLabel = DateHelpers.labelForDayCode(dayCode, weekOffset: _weekOffset);
+
+    final dayEntriesCount = _entries
+        .where((e) => e['day_of_week'] == dayCode)
+        .length;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Icon(Icons.beach_access_rounded, color: Colors.orange.shade700),
+            const SizedBox(width: 8),
+            Text('Mark Full Day Absent ($dayCode)'),
+          ],
+        ),
+        content: Text(
+          dayEntriesCount == 0
+              ? 'You have no assigned periods on $dayCode ($dayLabel).'
+              : 'Mark all $dayEntriesCount of your assigned periods on $dayCode ($dayLabel) as absent/leave? Slots will open up for substitutes to volunteer.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          if (dayEntriesCount > 0)
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.orange.shade800,
+                foregroundColor: Colors.white,
+              ),
+              onPressed: () {
+                Navigator.pop(ctx);
+                _markFacultyDayLeave(dayCode, isoDate);
+              },
+              child: const Text('Mark Absent'),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _markFacultyDayLeave(String dayCode, String isoDate) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$_kApiBase/mark_day_leave'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'faculty_id': widget.currentFacultyId,
+          'leave_date': isoDate,
+          'day_of_week': dayCode,
+        }),
+      );
+      if (response.statusCode == 200) {
+        _showSwapSnack('Marked full day leave for $dayCode ($isoDate)!');
+        await _fetchEntries();
+        widget.onTimetableChanged?.call();
+      }
+    } catch (e) {
+      _showSwapSnack('Network error marking full day leave.');
+    }
+  }
+
   Color _getCellColor(dynamic entry, bool isMySubject) {
     if (entry == null) return Colors.grey.shade50;
     if (entry['entry_type'] == 'break') return Colors.amber.shade50;
@@ -177,6 +268,10 @@ class _WeeklyMatrixGridWidgetState extends State<WeeklyMatrixGridWidget> {
   }
 
   void _handleCellTap(dynamic entry, String day, int periodNo) {
+    if (widget.onCellTap != null) {
+      widget.onCellTap!(entry);
+      return;
+    }
     if (!widget.canEdit) return;
 
     if (entry != null && entry['entry_type'] != 'break') {
@@ -784,7 +879,27 @@ class _WeeklyMatrixGridWidgetState extends State<WeeklyMatrixGridWidget> {
                                         ],
                                       ),
                                     ),
-                                    if (_canToggleHoliday && day != 'SUN')
+                                    if (widget.userRole == 'faculty_my_schedule' && day != 'SUN')
+                                       Positioned(
+                                         left: 2,
+                                         bottom: 2,
+                                         child: InkWell(
+                                           onTap: () => _confirmMarkFacultyDayLeave(day),
+                                           borderRadius: BorderRadius.circular(12),
+                                           child: Padding(
+                                             padding: const EdgeInsets.all(2.0),
+                                             child: Tooltip(
+                                               message: 'Mark Full Day Absent ($day)',
+                                               child: Icon(
+                                                 Icons.beach_access_rounded,
+                                                 size: 18,
+                                                 color: Colors.orange.shade800,
+                                               ),
+                                             ),
+                                           ),
+                                         ),
+                                       )
+                                     else if (_canToggleHoliday && day != 'SUN')
                                       Positioned(
                                         left: 2,
                                         bottom: 2,
@@ -956,7 +1071,10 @@ class _WeeklyMatrixGridWidgetState extends State<WeeklyMatrixGridWidget> {
                                 final title = isBreak
                                     ? (entry['label'] ?? 'BREAK')
                                     : (entry['course_name'] ?? 'Free Period');
-                                final faculty = entry['faculty_name'] ?? '';
+                                final faculty = widget.userRole ==
+                                        'faculty_my_schedule'
+                                    ? (entry['class_name'] ?? '')
+                                    : (entry['faculty_name'] ?? '');
                                 final room = entry['room_number'] ?? '';
 
                                 return InkWell(

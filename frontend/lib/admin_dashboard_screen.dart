@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'class_courses_screen.dart';
 import 'semester_management_screen.dart';
 import 'session_manager.dart';
+import 'role_selection_screen.dart';
 import 'main.dart';
 import 'admin_timetable_view_screen.dart';
 import 'promote_faculty_screen.dart';
@@ -351,12 +352,27 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
   Future<void> _logout() async {
     await SessionManager.clearSession();
+    await SessionManager.clearLastPage();
+    final savedCollege = await SessionManager.getSavedCollegeCode();
     if (mounted) {
-      Navigator.pushAndRemoveUntil(
-        context,
-        MaterialPageRoute(builder: (context) => const WelcomeScreen()),
-        (route) => false,
-      );
+      if (savedCollege != null) {
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(
+            builder: (context) => RoleSelectionScreen(
+              collegeCode: savedCollege['code'],
+              collegeId: savedCollege['collegeId'],
+            ),
+          ),
+          (route) => false,
+        );
+      } else {
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (context) => const WelcomeScreen()),
+          (route) => false,
+        );
+      }
     }
   }
 

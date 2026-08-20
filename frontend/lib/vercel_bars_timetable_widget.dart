@@ -57,6 +57,7 @@ class _VercelBarsTimetableWidgetState extends State<VercelBarsTimetableWidget> {
   }
 
   Future<void> _fetchHolidays() async {
+    if (widget.classId == 0) return;
     final url = Uri.parse('$_kApiBase/holidays_for_class_week/${widget.classId}');
     try {
       final response = await http.get(url);
@@ -162,6 +163,119 @@ class _VercelBarsTimetableWidgetState extends State<VercelBarsTimetableWidget> {
         ),
       ),
     );
+  }
+
+  Widget _buildFacultyDayLeaveToggle() {
+    return InkWell(
+      onTap: _selectedDay == 'SUN'
+          ? null
+          : () => _confirmMarkFacultyDayLeave(_selectedDay),
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: Colors.orange.shade50,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: Colors.orange.shade300),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.beach_access_rounded,
+              size: 16,
+              color: Colors.orange.shade800,
+            ),
+            const SizedBox(width: 6),
+            Text(
+              'Absent ($_selectedDay)',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+                color: Colors.orange.shade900,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _confirmMarkFacultyDayLeave(String dayCode) {
+    if (widget.currentFacultyId == null) return;
+    final isoDate = DateHelpers.isoForDayCode(dayCode, weekOffset: _weekOffset);
+    final dayLabel = DateHelpers.labelForDayCode(dayCode, weekOffset: _weekOffset);
+
+    final dayEntriesCount = widget.entries
+        .where((e) => e['day_of_week'] == dayCode)
+        .length;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Icon(Icons.beach_access_rounded, color: Colors.orange.shade700),
+            const SizedBox(width: 8),
+            Text('Mark Full Day Absent ($dayCode)'),
+          ],
+        ),
+        content: Text(
+          dayEntriesCount == 0
+              ? 'You have no assigned periods on $dayCode ($dayLabel).'
+              : 'Mark all $dayEntriesCount of your assigned periods on $dayCode ($dayLabel) as absent/leave? Slots will open up for substitutes to volunteer.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          if (dayEntriesCount > 0)
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.orange.shade800,
+                foregroundColor: Colors.white,
+              ),
+              onPressed: () {
+                Navigator.pop(ctx);
+                _markFacultyDayLeave(dayCode, isoDate);
+              },
+              child: const Text('Mark Absent'),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _markFacultyDayLeave(String dayCode, String isoDate) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$_kApiBase/mark_day_leave'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'faculty_id': widget.currentFacultyId,
+          'leave_date': isoDate,
+          'day_of_week': dayCode,
+        }),
+      );
+      if (response.statusCode == 200) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Marked full day leave for $dayCode ($isoDate)!'),
+            ),
+          );
+        }
+        widget.onRefreshNeeded?.call();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Network error marking full day leave.')),
+        );
+      }
+    }
   }
 
   Widget _buildRescheduleToggle() {
@@ -777,6 +891,10 @@ class _VercelBarsTimetableWidgetState extends State<VercelBarsTimetableWidget> {
                 const SizedBox(width: 8),
                 _buildHolidayToggle(),
               ],
+              if (widget.userRole == 'faculty_my_schedule') ...[
+                const SizedBox(width: 8),
+                _buildFacultyDayLeaveToggle(),
+              ],
               if (_canUseSwapMode) ...[
                 const SizedBox(width: 8),
                 _buildSwapModeToggle(),
@@ -926,8 +1044,9 @@ class _VercelBarsTimetableWidgetState extends State<VercelBarsTimetableWidget> {
                 final courseName =
                     entry['course_name'] ??
                     (isBreak ? (entry['label'] ?? 'BREAK') : 'Unassigned Slot');
-                final facultyName =
-                    entry['faculty_name'] ?? 'No Faculty Assigned';
+                final facultyName = widget.userRole == 'faculty_my_schedule'
+                    ? (entry['class_name'] ?? 'Class')
+                    : (entry['faculty_name'] ?? 'No Faculty Assigned');
                 final statusColor = entry['status_color'] ?? 'normal';
                 final swapId = entry['swap_id'] as int?;
                 final startTime = entry['start_time'] ?? '00:00';

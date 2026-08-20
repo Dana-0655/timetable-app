@@ -1715,6 +1715,80 @@ def get_timetable(class_id):
 
     return jsonify(result)
 
+@app.route("/faculty_timetable/<int:faculty_id>", methods=["GET"])
+def get_faculty_timetable(faculty_id):
+    try:
+        courses = Course.query.filter_by(faculty_id=faculty_id).all()
+        course_map = {c.course_id: c for c in courses}
+        course_ids = list(course_map.keys())
+
+        substitute_leaves = Leave.query.filter_by(confirmed_faculty_id=faculty_id, status="confirmed").all()
+        substitute_entry_ids = [l.entry_id for l in substitute_leaves]
+
+        if not course_ids and not substitute_entry_ids:
+            return jsonify([])
+
+        conditions = []
+        if course_ids:
+            conditions.append(TimetableEntry.course_id.in_(course_ids))
+        if substitute_entry_ids:
+            conditions.append(TimetableEntry.entry_id.in_(substitute_entry_ids))
+
+        entries = TimetableEntry.query.filter(db.or_(*conditions)).all()
+
+        class_ids = list({e.class_id for e in entries if e.class_id})
+        classes = Class.query.filter(Class.class_id.in_(class_ids)).all() if class_ids else []
+        class_map = {c.class_id: c for c in classes}
+
+        result = []
+        for e in entries:
+            course = course_map.get(e.course_id)
+            if not course:
+                course = Course.query.get(e.course_id) if e.course_id else None
+            course_name = course.course_name if course else "Class Period"
+
+            cls = class_map.get(e.class_id)
+            class_name = f"{cls.year} - {cls.department} - {cls.section}" if cls else "Class"
+
+            swap_id_result = None
+            if e.status_color == "swapped":
+                swap = SwapRequest.query.filter(
+                    db.or_(
+                        SwapRequest.requester_entry_id == e.entry_id,
+                        SwapRequest.target_entry_id == e.entry_id
+                    ),
+                    SwapRequest.status == "accepted"
+                ).order_by(SwapRequest.resolved_at.desc()).first()
+                if swap:
+                    swap_id_result = swap.swap_id
+
+            result.append({
+                "entry_id": e.entry_id,
+                "class_id": e.class_id,
+                "class_name": class_name,
+                "department": cls.department if cls else "",
+                "section": cls.section if cls else "",
+                "year": cls.year if cls else "",
+                "room_number": cls.room_number if cls else "Not Set",
+                "day_of_week": e.day_of_week,
+                "period_no": e.period_no,
+                "entry_type": e.entry_type,
+                "label": e.label,
+                "start_time": e.start_time,
+                "end_time": e.end_time,
+                "course_id": e.course_id,
+                "course_name": course_name,
+                "faculty_name": None,
+                "faculty_id": faculty_id,
+                "status_color": e.status_color,
+                "swap_id": swap_id_result
+            })
+
+        return jsonify(result)
+    except Exception as err:
+        print(f"Error in get_faculty_timetable: {err}")
+        return jsonify([])
+
 @app.route("/verify_college_code/<string:code>", methods=["GET"])
 def verify_college_code(code):
     college = College.query.filter_by(college_code=code).first()

@@ -164,38 +164,135 @@ class _FacultyPendingLeavesScreenState
 
       showDialog(
         context: context,
-        builder: (context) => AlertDialog(
-          title: Text('Invite Someone - $slotInfo'),
-          content: SizedBox(
-            width: double.maxFinite,
-            child: facultyList.isEmpty
-                ? const Text('No other faculty available.')
-                : ListView.builder(
-                    shrinkWrap: true,
-                    itemCount: facultyList.length,
-                    itemBuilder: (context, index) {
-                      final f = facultyList[index];
-                      return ListTile(
-                        title: Text(f['name']),
-                        subtitle: Text(f['email']),
-                        trailing: ElevatedButton(
-                          onPressed: () async {
-                            Navigator.pop(context);
-                            await _inviteSubstitute(leaveId, f['faculty_id']);
-                          },
-                          child: const Text('Invite'),
+        builder: (context) {
+          String searchQuery = '';
+          final searchController = TextEditingController();
+
+          return StatefulBuilder(
+            builder: (context, setDialogState) {
+              final query = searchQuery.trim().toLowerCase();
+              final filteredList = facultyList.where((f) {
+                final name = (f['name'] ?? '').toString().toLowerCase();
+                final email = (f['email'] ?? '').toString().toLowerCase();
+                return name.contains(query) || email.contains(query);
+              }).toList();
+
+              return AlertDialog(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                title: Text(
+                  'Invite Someone - $slotInfo',
+                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+                content: SizedBox(
+                  width: double.maxFinite,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      TextField(
+                        controller: searchController,
+                        decoration: InputDecoration(
+                          hintText: 'Search by name or email...',
+                          prefixIcon: const Icon(Icons.search),
+                          suffixIcon: searchQuery.isNotEmpty
+                              ? IconButton(
+                                  icon: const Icon(Icons.clear, size: 18),
+                                  onPressed: () {
+                                    searchController.clear();
+                                    setDialogState(() {
+                                      searchQuery = '';
+                                    });
+                                  },
+                                )
+                              : null,
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 12,
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
                         ),
-                      );
-                    },
+                        onChanged: (val) {
+                          setDialogState(() {
+                            searchQuery = val;
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      Flexible(
+                        child: facultyList.isEmpty
+                            ? const Padding(
+                                padding: EdgeInsets.all(16.0),
+                                child: Text('No other faculty available.'),
+                              )
+                            : filteredList.isEmpty
+                            ? Padding(
+                                padding: const EdgeInsets.all(16.0),
+                                child: Text(
+                                  'No faculty found matching "$searchQuery"',
+                                  style: const TextStyle(color: Colors.black54),
+                                ),
+                              )
+                            : ListView.separated(
+                                shrinkWrap: true,
+                                itemCount: filteredList.length,
+                                separatorBuilder: (_, __) =>
+                                    const Divider(height: 1),
+                                itemBuilder: (context, index) {
+                                  final f = filteredList[index];
+                                  return ListTile(
+                                    contentPadding: const EdgeInsets.symmetric(
+                                      horizontal: 4,
+                                      vertical: 2,
+                                    ),
+                                    title: Text(
+                                      f['name'],
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    subtitle: Text(
+                                      f['email'],
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.black54,
+                                      ),
+                                    ),
+                                    trailing: ElevatedButton(
+                                      style: ElevatedButton.styleFrom(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 16,
+                                          vertical: 8,
+                                        ),
+                                      ),
+                                      onPressed: () async {
+                                        Navigator.pop(context);
+                                        await _inviteSubstitute(
+                                          leaveId,
+                                          f['faculty_id'],
+                                        );
+                                      },
+                                      child: const Text('Invite'),
+                                    ),
+                                  );
+                                },
+                              ),
+                      ),
+                    ],
                   ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
-            ),
-          ],
-        ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('Cancel'),
+                  ),
+                ],
+              );
+            },
+          );
+        },
       );
     } catch (e) {
       // Silently fail for now

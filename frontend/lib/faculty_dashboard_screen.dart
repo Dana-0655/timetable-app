@@ -5,11 +5,11 @@ import 'faculty_my_schedule_screen.dart';
 import 'faculty_open_slots_screen.dart';
 import 'faculty_pending_leaves_screen.dart';
 import 'browse_timetables_screen.dart';
-import 'browse_classes_screen.dart';
 import 'admin_timetable_view_screen.dart';
 import 'class_courses_screen.dart';
 import 'timetable_grid_screen.dart';
 import 'session_manager.dart';
+import 'role_selection_screen.dart';
 import 'main.dart';
 import 'notification_bell.dart';
 import 'swap_inbox_icon.dart';
@@ -42,12 +42,27 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
 
   Future<void> _logout() async {
     await SessionManager.clearSession();
+    await SessionManager.clearLastPage();
+    final savedCollege = await SessionManager.getSavedCollegeCode();
     if (mounted) {
-      Navigator.pushAndRemoveUntil(
-        context,
-        MaterialPageRoute(builder: (context) => const WelcomeScreen()),
-        (route) => false,
-      );
+      if (savedCollege != null) {
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(
+            builder: (context) => RoleSelectionScreen(
+              collegeCode: savedCollege['code'],
+              collegeId: savedCollege['collegeId'],
+            ),
+          ),
+          (route) => false,
+        );
+      } else {
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (context) => const WelcomeScreen()),
+          (route) => false,
+        );
+      }
     }
   }
 
@@ -78,22 +93,6 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
           NotificationBell(
             recipientType: 'faculty',
             recipientId: widget.facultyId,
-          ),
-          IconButton(
-            icon: const Icon(Icons.search),
-            tooltip: 'Browse Classes',
-            onPressed: () async {
-              await Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => BrowseClassesScreen(
-                    facultyId: widget.facultyId,
-                    collegeId: widget.collegeId,
-                  ),
-                ),
-              );
-              _fetchRelatedClasses();
-            },
           ),
           IconButton(
             icon: const Icon(Icons.schedule),

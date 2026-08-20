@@ -48,6 +48,10 @@ class SessionManager {
     await prefs.remove('facultyId');
     await prefs.remove('name');
     await prefs.remove('collegeId');
+  }
+
+  static Future<void> clearCollegeCode() async {
+    final prefs = await SharedPreferences.getInstance();
     await prefs.remove('college_code');
     await prefs.remove('last_college_id');
   }
