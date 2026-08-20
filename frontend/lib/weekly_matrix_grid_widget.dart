@@ -5,6 +5,7 @@ import 'fill_slot_screen.dart';
 import 'schedule_builder_screen.dart';
 import 'swap_color_utils.dart';
 import 'date_helpers.dart';
+import 'session_manager.dart';
 
 // TODO: replace with your existing base URL constant if you have one
 const String _kApiBase = "http://127.0.0.1:5000";
@@ -43,6 +44,7 @@ class _WeeklyMatrixGridWidgetState extends State<WeeklyMatrixGridWidget> {
   Map<String, dynamic> _holidays = {};
   bool _holidaySubmitting = false;
   int _weekOffset = 0; // 0 = current week, 1 = next week, -1 = previous week
+  bool _isMobileHorizontal = false;
   final List<String> _days = const [
     'MON',
     'TUE',
@@ -61,6 +63,7 @@ class _WeeklyMatrixGridWidgetState extends State<WeeklyMatrixGridWidget> {
   @override
   void initState() {
     super.initState();
+    _loadOrientationPreference();
     if (widget.entries != null) {
       _entries = widget.entries!;
       _isLoading = false;
@@ -68,6 +71,17 @@ class _WeeklyMatrixGridWidgetState extends State<WeeklyMatrixGridWidget> {
     } else {
       _fetchTimetable();
     }
+  }
+
+  Future<void> _loadOrientationPreference() async {
+    final pref = await SessionManager.getGridOrientationPreference();
+    if (mounted) setState(() => _isMobileHorizontal = pref);
+  }
+
+  Future<void> _toggleMobileOrientation() async {
+    final next = !_isMobileHorizontal;
+    setState(() => _isMobileHorizontal = next);
+    await SessionManager.saveGridOrientationPreference(next);
   }
 
   @override
@@ -533,6 +547,56 @@ class _WeeklyMatrixGridWidgetState extends State<WeeklyMatrixGridWidget> {
     }
   }
 
+  Widget _buildMobileOrientationToggle() {
+    return InkWell(
+      onTap: _toggleMobileOrientation,
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: _isMobileHorizontal
+              ? const Color(0xFF0EA5E9)
+              : const Color(0xFFF1F5F9),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: _isMobileHorizontal
+                ? const Color(0xFF0EA5E9)
+                : const Color(0xFFCBD5E1),
+          ),
+          boxShadow: [
+            if (_isMobileHorizontal)
+              BoxShadow(
+                color: const Color(0xFF0EA5E9).withValues(alpha: 0.3),
+                blurRadius: 4,
+                offset: const Offset(0, 2),
+              ),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              _isMobileHorizontal
+                  ? Icons.screen_lock_landscape_rounded
+                  : Icons.screen_rotation_rounded,
+              size: 15,
+              color: _isMobileHorizontal ? Colors.white : const Color(0xFF334155),
+            ),
+            const SizedBox(width: 5),
+            Text(
+              _isMobileHorizontal ? 'Landscape (90°)' : 'Horizontal Mode',
+              style: TextStyle(
+                fontSize: 11.5,
+                fontWeight: FontWeight.bold,
+                color: _isMobileHorizontal ? Colors.white : const Color(0xFF334155),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildSwapModeToggle() {
     return InkWell(
       onTap: _swapSubmitting ? null : _toggleSwapMode,
@@ -685,6 +749,8 @@ class _WeeklyMatrixGridWidgetState extends State<WeeklyMatrixGridWidget> {
       );
     }
 
+    final isMobile = MediaQuery.of(context).size.width < 700;
+
     int maxPeriod = 1;
     for (var e in _entries) {
       final p = e['period_no'];
@@ -693,141 +759,127 @@ class _WeeklyMatrixGridWidgetState extends State<WeeklyMatrixGridWidget> {
       }
     }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // ---- NEW: Swap Mode toggle row, top-right ----
-        if (_canUseSwapMode)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [_buildSwapModeToggle()],
-            ),
-          ),
-        if (_canUseSwapMode && _swapModeOn) _buildSwapModeBanner(),
+    final double colWidth = (isMobile && _isMobileHorizontal)
+        ? (maxPeriod <= 6 ? 98.0 : 88.0)
+        : (isMobile ? 115.0 : 140.0);
+    final double cellHeight = (isMobile && _isMobileHorizontal) ? 68.0 : 90.0;
 
-        Expanded(
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: SingleChildScrollView(
-              scrollDirection: Axis.vertical,
-              child: Padding(
-                padding: const EdgeInsets.all(12.0),
-                child: Table(
-                  defaultColumnWidth: const FixedColumnWidth(140.0),
-                  border: TableBorder.all(
-                    color: Colors.grey.shade300,
-                    width: 1,
-                    borderRadius: BorderRadius.circular(8),
+    final tableCore = Padding(
+      padding: const EdgeInsets.all(8.0),
+      child: Table(
+        defaultColumnWidth: FixedColumnWidth(colWidth),
+        border: TableBorder.all(
+          color: Colors.grey.shade300,
+          width: 1,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        children: [
+          TableRow(
+            decoration: const BoxDecoration(
+              color: Color(0xFF1E293B),
+              borderRadius: BorderRadius.vertical(
+                top: Radius.circular(7),
+              ),
+            ),
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                alignment: Alignment.center,
+                child: const Text(
+                  'Day',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 12,
                   ),
-                  children: [
-                    TableRow(
-                      decoration: const BoxDecoration(
-                        color: Color(0xFF1E293B),
-                        borderRadius: BorderRadius.vertical(
-                          top: Radius.circular(7),
+                ),
+              ),
+              for (int p = 1; p <= maxPeriod; p++)
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  alignment: Alignment.center,
+                  child: Text(
+                    'Period $p',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+
+          // ---- Navigation Row: Above Monday (Previous Week) ----
+          TableRow(
+            decoration: const BoxDecoration(color: Color(0xFFF1F5F9)),
+            children: [
+              InkWell(
+                onTap: () {
+                  setState(() => _weekOffset--);
+                  _fetchHolidays();
+                },
+                child: Container(
+                  height: 38,
+                  alignment: Alignment.center,
+                  child: const Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.arrow_upward_rounded,
+                        size: 14,
+                        color: Color(0xFF0F172A),
+                      ),
+                      SizedBox(width: 4),
+                      Text(
+                        'Prev Week',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF0F172A),
                         ),
                       ),
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(10),
-                          alignment: Alignment.center,
-                          child: const Text(
-                            'Day',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 12,
-                            ),
+                    ],
+                  ),
+                ),
+              ),
+              for (int p = 1; p <= maxPeriod; p++)
+                Container(
+                  height: 38,
+                  alignment: Alignment.center,
+                  child: p == 1
+                      ? Text(
+                          _weekOffset == 0
+                              ? 'Current Week (${DateHelpers.weekRangeLabel(weekOffset: 0)})'
+                              : '${DateHelpers.weekRangeLabel(weekOffset: _weekOffset)} (${_weekOffset > 0 ? "+$_weekOffset W" : "$_weekOffset W"})',
+                          style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF0369A1),
                           ),
-                        ),
-                        for (int p = 1; p <= maxPeriod; p++)
-                          Container(
-                            padding: const EdgeInsets.all(10),
-                            alignment: Alignment.center,
-                            child: Text(
-                              'Period $p',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
+                        )
+                      : null,
+                ),
+            ],
+          ),
 
-                    // ---- Navigation Row: Above Monday (Previous Week) ----
-                    TableRow(
-                      decoration: const BoxDecoration(color: Color(0xFFF1F5F9)),
-                      children: [
-                        InkWell(
-                          onTap: () {
-                            setState(() => _weekOffset--);
-                            _fetchHolidays();
-                          },
-                          child: Container(
-                            height: 38,
-                            alignment: Alignment.center,
-                            child: const Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(
-                                  Icons.arrow_upward_rounded,
-                                  size: 14,
-                                  color: Color(0xFF0F172A),
-                                ),
-                                SizedBox(width: 4),
-                                Text(
-                                  'Prev Week',
-                                  style: TextStyle(
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.bold,
-                                    color: Color(0xFF0F172A),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                        for (int p = 1; p <= maxPeriod; p++)
-                          Container(
-                            height: 38,
-                            alignment: Alignment.center,
-                            child: p == 1
-                                ? Text(
-                                    _weekOffset == 0
-                                        ? 'Current Week (${DateHelpers.weekRangeLabel(weekOffset: 0)})'
-                                        : '${DateHelpers.weekRangeLabel(weekOffset: _weekOffset)} (${_weekOffset > 0 ? "+$_weekOffset W" : "$_weekOffset W"})',
-                                    style: const TextStyle(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.bold,
-                                      color: Color(0xFF0369A1),
-                                    ),
-                                  )
-                                : null,
-                          ),
-                      ],
-                    ),
+          for (String day in _days)
+            TableRow(
+              children: [
+                Builder(
+                  builder: (context) {
+                    final isoDate = DateHelpers.isoForDayCode(
+                      day,
+                      weekOffset: _weekOffset,
+                    );
+                    final isCustomHoliday = _holidays.containsKey(
+                      isoDate,
+                    );
+                    final isHoliday = isCustomHoliday || day == 'SUN';
 
-                    for (String day in _days)
-                      TableRow(
-                        children: [
-                          Builder(
-                            builder: (context) {
-                              final isoDate = DateHelpers.isoForDayCode(
-                                day,
-                                weekOffset: _weekOffset,
-                              );
-                              final isCustomHoliday = _holidays.containsKey(
-                                isoDate,
-                              );
-                              final isHoliday = isCustomHoliday || day == 'SUN';
-
-                              return Container(
-                                height: 90,
-                                padding: const EdgeInsets.all(4),
+                    return Container(
+                      height: cellHeight,
+                      padding: const EdgeInsets.all(4),
                                 alignment: Alignment.center,
                                 color: isHoliday
                                     ? Colors.orange.shade50
@@ -1007,7 +1059,7 @@ class _WeeklyMatrixGridWidgetState extends State<WeeklyMatrixGridWidget> {
                                   return InkWell(
                                     onTap: () => _handleCellTap(null, day, p),
                                     child: Container(
-                                      height: 90,
+                                      height: cellHeight,
                                       color: isHoliday
                                           ? Colors.orange.shade50
                                           : Colors.grey.shade50,
@@ -1088,7 +1140,7 @@ class _WeeklyMatrixGridWidgetState extends State<WeeklyMatrixGridWidget> {
                                     }
                                   },
                                   child: Container(
-                                    height: 90,
+                                    height: cellHeight,
                                     padding: const EdgeInsets.all(6),
                                     decoration: BoxDecoration(
                                       color: _getCellColor(entry, isMySubject),
@@ -1343,9 +1395,45 @@ class _WeeklyMatrixGridWidgetState extends State<WeeklyMatrixGridWidget> {
                     ),
                   ],
                 ),
-              ),
-            ),
+              );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 4),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              if (isMobile) ...[
+                _buildMobileOrientationToggle(),
+                const SizedBox(width: 8),
+              ],
+              if (_canUseSwapMode) _buildSwapModeToggle(),
+            ],
           ),
+        ),
+        if (_canUseSwapMode && _swapModeOn) _buildSwapModeBanner(),
+
+        Expanded(
+          child: isMobile && _isMobileHorizontal
+              ? RotatedBox(
+                  quarterTurns: 1,
+                  child: InteractiveViewer(
+                    constrained: false,
+                    minScale: 0.35,
+                    maxScale: 3.0,
+                    boundaryMargin: const EdgeInsets.all(40),
+                    child: tableCore,
+                  ),
+                )
+              : SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.vertical,
+                    child: tableCore,
+                  ),
+                ),
         ),
       ],
     );

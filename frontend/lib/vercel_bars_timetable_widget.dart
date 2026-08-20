@@ -114,90 +114,162 @@ class _VercelBarsTimetableWidgetState extends State<VercelBarsTimetableWidget> {
     }
   }
 
-  Widget _buildHolidayToggle() {
-    final currentIso = DateHelpers.isoForDayCode(_selectedDay, weekOffset: _weekOffset);
+  Widget _buildHolidayToggle({bool isMobile = false}) {
+    final currentIso =
+        DateHelpers.isoForDayCode(_selectedDay, weekOffset: _weekOffset);
     final isCustomHoliday = _holidays.containsKey(currentIso);
+
+    final buttonChild = isMobile
+        ? Tooltip(
+            message: isCustomHoliday
+                ? 'Holiday Set (Tap to Unmark)'
+                : 'Mark $_selectedDay as Holiday',
+            child: Container(
+              width: 36,
+              height: 36,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: isCustomHoliday
+                    ? Colors.orange.shade600
+                    : const Color(0xFFF1F5F9),
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: isCustomHoliday
+                      ? Colors.orange.shade600
+                      : const Color(0xFFCBD5E1),
+                ),
+              ),
+              child: _holidaySubmitting
+                  ? const SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : Icon(
+                      isCustomHoliday
+                          ? Icons.beach_access_rounded
+                          : Icons.beach_access_outlined,
+                      size: 18,
+                      color: isCustomHoliday
+                          ? Colors.white
+                          : const Color(0xFF475569),
+                    ),
+            ),
+          )
+        : Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: isCustomHoliday
+                  ? Colors.orange.shade600
+                  : const Color(0xFFF8FAFC),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: isCustomHoliday
+                    ? Colors.orange.shade600
+                    : const Color(0xFFE2E8F0),
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (_holidaySubmitting)
+                  const SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                else
+                  Icon(
+                    isCustomHoliday
+                        ? Icons.beach_access_rounded
+                        : Icons.beach_access_outlined,
+                    size: 16,
+                    color:
+                        isCustomHoliday ? Colors.white : const Color(0xFF475569),
+                  ),
+                const SizedBox(width: 6),
+                Text(
+                  isCustomHoliday ? 'Holiday Set' : 'Holiday',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color:
+                        isCustomHoliday ? Colors.white : const Color(0xFF475569),
+                  ),
+                ),
+              ],
+            ),
+          );
 
     return InkWell(
       onTap: (_selectedDay == 'SUN' || _holidaySubmitting)
           ? null
           : () => _toggleHoliday(_selectedDay),
       borderRadius: BorderRadius.circular(20),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: isCustomHoliday ? Colors.orange.shade600 : const Color(0xFFF8FAFC),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: isCustomHoliday ? Colors.orange.shade600 : const Color(0xFFE2E8F0),
-          ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (_holidaySubmitting)
-              const SizedBox(
-                width: 14,
-                height: 14,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: Colors.white,
-                ),
-              )
-            else
-              Icon(
-                isCustomHoliday ? Icons.beach_access_rounded : Icons.beach_access_outlined,
-                size: 16,
-                color: isCustomHoliday ? Colors.white : const Color(0xFF475569),
-              ),
-            const SizedBox(width: 6),
-            Text(
-              isCustomHoliday ? 'Holiday Set' : 'Holiday',
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.bold,
-                color: isCustomHoliday ? Colors.white : const Color(0xFF475569),
-              ),
-            ),
-          ],
-        ),
-      ),
+      child: buttonChild,
     );
   }
 
-  Widget _buildFacultyDayLeaveToggle() {
+  Widget _buildFacultyDayLeaveToggle({bool isMobile = false}) {
+    final buttonChild = isMobile
+        ? Tooltip(
+            message: 'Mark Full Day Absent ($_selectedDay)',
+            child: Container(
+              width: 36,
+              height: 36,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: Colors.orange.shade50,
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.orange.shade300),
+              ),
+              child: Icon(
+                Icons.beach_access_rounded,
+                size: 18,
+                color: Colors.orange.shade800,
+              ),
+            ),
+          )
+        : Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.orange.shade50,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: Colors.orange.shade300),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.beach_access_rounded,
+                  size: 16,
+                  color: Colors.orange.shade800,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  'Absent ($_selectedDay)',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.orange.shade900,
+                  ),
+                ),
+              ],
+            ),
+          );
+
     return InkWell(
       onTap: _selectedDay == 'SUN'
           ? null
           : () => _confirmMarkFacultyDayLeave(_selectedDay),
       borderRadius: BorderRadius.circular(20),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: Colors.orange.shade50,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: Colors.orange.shade300),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.beach_access_rounded,
-              size: 16,
-              color: Colors.orange.shade800,
-            ),
-            const SizedBox(width: 6),
-            Text(
-              'Absent ($_selectedDay)',
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.bold,
-                color: Colors.orange.shade900,
-              ),
-            ),
-          ],
-        ),
-      ),
+      child: buttonChild,
     );
   }
 
@@ -278,7 +350,54 @@ class _VercelBarsTimetableWidgetState extends State<VercelBarsTimetableWidget> {
     }
   }
 
-  Widget _buildRescheduleToggle() {
+  Widget _buildRescheduleToggle({bool isMobile = false}) {
+    final buttonChild = isMobile
+        ? Tooltip(
+            message: 'Build / Edit Schedule ($_selectedDay)',
+            child: Container(
+              width: 36,
+              height: 36,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: const Color(0xFFF1F5F9),
+                shape: BoxShape.circle,
+                border: Border.all(color: const Color(0xFFCBD5E1)),
+              ),
+              child: const Icon(
+                Icons.edit_calendar_rounded,
+                size: 18,
+                color: Color(0xFF475569),
+              ),
+            ),
+          )
+        : Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF8FAFC),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
+            ),
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.edit_calendar_rounded,
+                  size: 16,
+                  color: Color(0xFF475569),
+                ),
+                SizedBox(width: 6),
+                Text(
+                  'Schedule',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF475569),
+                  ),
+                ),
+              ],
+            ),
+          );
+
     return InkWell(
       onTap: () {
         Navigator.push(
@@ -296,33 +415,96 @@ class _VercelBarsTimetableWidgetState extends State<VercelBarsTimetableWidget> {
         });
       },
       borderRadius: BorderRadius.circular(20),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: const Color(0xFFF8FAFC),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: const Color(0xFFE2E8F0)),
-        ),
-        child: const Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.edit_calendar_rounded,
-              size: 16,
-              color: Color(0xFF475569),
+      child: buttonChild,
+    );
+  }
+
+  Widget _buildSwapModeToggle({bool isMobile = false}) {
+    final buttonChild = isMobile
+        ? Tooltip(
+            message: _swapModeOn ? 'Cancel Swap Mode' : 'Enter Swap Mode',
+            child: Container(
+              width: 36,
+              height: 36,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: _swapModeOn
+                    ? const Color(0xFF0EA5E9)
+                    : const Color(0xFFF1F5F9),
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: _swapModeOn
+                      ? const Color(0xFF0EA5E9)
+                      : const Color(0xFFCBD5E1),
+                ),
+              ),
+              child: _swapSubmitting
+                  ? const SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : Icon(
+                      Icons.swap_horiz_rounded,
+                      size: 18,
+                      color:
+                          _swapModeOn ? Colors.white : const Color(0xFF475569),
+                    ),
             ),
-            SizedBox(width: 6),
-            Text(
-              'Schedule',
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF475569),
+          )
+        : Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: _swapModeOn
+                  ? const Color(0xFF0EA5E9)
+                  : const Color(0xFFF8FAFC),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: _swapModeOn
+                    ? const Color(0xFF0EA5E9)
+                    : const Color(0xFFE2E8F0),
               ),
             ),
-          ],
-        ),
-      ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (_swapSubmitting)
+                  const SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                else
+                  Icon(
+                    Icons.swap_horiz_rounded,
+                    size: 16,
+                    color:
+                        _swapModeOn ? Colors.white : const Color(0xFF475569),
+                  ),
+                const SizedBox(width: 6),
+                Text(
+                  _swapModeOn ? 'Swap Mode' : 'Swap',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color:
+                        _swapModeOn ? Colors.white : const Color(0xFF475569),
+                  ),
+                ),
+              ],
+            ),
+          );
+
+    return InkWell(
+      onTap: _swapSubmitting ? null : _toggleSwapMode,
+      borderRadius: BorderRadius.circular(20),
+      child: buttonChild,
     );
   }
 
@@ -737,12 +919,13 @@ class _VercelBarsTimetableWidgetState extends State<VercelBarsTimetableWidget> {
   @override
   Widget build(BuildContext context) {
     final dayEntries = _getEntriesForDay(_selectedDay);
+    final isMobile = MediaQuery.of(context).size.width < 700;
 
     return SingleChildScrollView(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ---- Day tabs + Swap Mode toggle (top-right) ----
+          // ---- Day tabs + Compact Actions (top-right) ----
           Row(
             children: [
               Expanded(
@@ -753,7 +936,7 @@ class _VercelBarsTimetableWidgetState extends State<VercelBarsTimetableWidget> {
                     children: [
                       // Left Arrow: Before Monday (Past Weeks)
                       Padding(
-                        padding: const EdgeInsets.only(right: 6),
+                        padding: const EdgeInsets.only(right: 4),
                         child: Tooltip(
                           message: 'Previous Week',
                           child: InkWell(
@@ -763,15 +946,16 @@ class _VercelBarsTimetableWidgetState extends State<VercelBarsTimetableWidget> {
                             },
                             borderRadius: BorderRadius.circular(20),
                             child: Container(
-                              padding: const EdgeInsets.all(8),
+                              padding: const EdgeInsets.all(7),
                               decoration: BoxDecoration(
                                 color: const Color(0xFFF1F5F9),
                                 shape: BoxShape.circle,
-                                border: Border.all(color: const Color(0xFFE2E8F0)),
+                                border:
+                                    Border.all(color: const Color(0xFFE2E8F0)),
                               ),
                               child: const Icon(
                                 Icons.arrow_back_ios_new_rounded,
-                                size: 14,
+                                size: 12,
                                 color: Color(0xFF1E293B),
                               ),
                             ),
@@ -781,68 +965,89 @@ class _VercelBarsTimetableWidgetState extends State<VercelBarsTimetableWidget> {
 
                       ..._days.map((day) {
                         final isSelected = _selectedDay == day['short'];
-                        final dayIso = DateHelpers.isoForDayCode(day['short']!, weekOffset: _weekOffset);
-                        final isDayHoliday = _holidays.containsKey(dayIso) || day['short'] == 'SUN';
+                        final dayIso = DateHelpers.isoForDayCode(
+                          day['short']!,
+                          weekOffset: _weekOffset,
+                        );
+                        final isDayHoliday =
+                            _holidays.containsKey(dayIso) ||
+                            day['short'] == 'SUN';
 
                         return Padding(
-                          padding: const EdgeInsets.only(right: 8),
-                          child: FilterChip(
-                            selected: isSelected,
-                            label: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Text(
-                                      day['short']!,
-                                      style: TextStyle(
-                                        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                                        color: isSelected ? Colors.white : const Color(0xFF475569),
-                                        fontSize: 12,
-                                      ),
-                                    ),
-                                    if (isDayHoliday) ...[
-                                      const SizedBox(width: 3),
-                                      Icon(
-                                        Icons.beach_access_rounded,
-                                        size: 11,
-                                        color: isSelected ? Colors.amber.shade300 : Colors.orange.shade600,
-                                      ),
-                                    ],
-                                  ],
-                                ),
-                                Text(
-                                  DateHelpers.labelForDayCode(day['short']!, weekOffset: _weekOffset),
-                                  style: TextStyle(
-                                    fontSize: 9,
-                                    color: isSelected ? Colors.white70 : const Color(0xFF94A3B8),
-                                  ),
-                                ),
-                              ],
+                          padding: EdgeInsets.only(right: isMobile ? 5 : 8),
+                          child: InkWell(
+                            onTap: () => setState(
+                              () => _selectedDay = day['short']!,
                             ),
-                            selectedColor: const Color(0xFF0F172A),
-                            backgroundColor: const Color(0xFFF8FAFC),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(20),
-                              side: BorderSide(
+                            borderRadius: BorderRadius.circular(16),
+                            child: Container(
+                              padding: EdgeInsets.symmetric(
+                                horizontal: isMobile ? 9 : 12,
+                                vertical: isMobile ? 6 : 8,
+                              ),
+                              decoration: BoxDecoration(
                                 color: isSelected
                                     ? const Color(0xFF0F172A)
-                                    : const Color(0xFFE2E8F0),
+                                    : const Color(0xFFF8FAFC),
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(
+                                  color: isSelected
+                                      ? const Color(0xFF0F172A)
+                                      : const Color(0xFFE2E8F0),
+                                ),
+                              ),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        day['short']!,
+                                        style: TextStyle(
+                                          fontWeight: isSelected
+                                              ? FontWeight.bold
+                                              : FontWeight.w600,
+                                          color: isSelected
+                                              ? Colors.white
+                                              : const Color(0xFF334155),
+                                          fontSize: isMobile ? 11 : 12,
+                                        ),
+                                      ),
+                                      if (isDayHoliday) ...[
+                                        const SizedBox(width: 2),
+                                        Icon(
+                                          Icons.beach_access_rounded,
+                                          size: 10,
+                                          color: isSelected
+                                              ? Colors.amber.shade300
+                                              : Colors.orange.shade600,
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                  Text(
+                                    DateHelpers.labelForDayCode(
+                                      day['short']!,
+                                      weekOffset: _weekOffset,
+                                    ),
+                                    style: TextStyle(
+                                      fontSize: isMobile ? 8.5 : 9,
+                                      color: isSelected
+                                          ? Colors.white70
+                                          : const Color(0xFF94A3B8),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
-                            onSelected: (selected) {
-                              if (selected) {
-                                setState(() => _selectedDay = day['short']!);
-                              }
-                            },
                           ),
                         );
                       }),
 
                       // Right Arrow: After Sunday (Future Weeks)
                       Padding(
-                        padding: const EdgeInsets.only(left: 2, right: 8),
+                        padding: const EdgeInsets.only(left: 1, right: 6),
                         child: Tooltip(
                           message: 'Next / Future Week',
                           child: InkWell(
@@ -852,15 +1057,16 @@ class _VercelBarsTimetableWidgetState extends State<VercelBarsTimetableWidget> {
                             },
                             borderRadius: BorderRadius.circular(20),
                             child: Container(
-                              padding: const EdgeInsets.all(8),
+                              padding: const EdgeInsets.all(7),
                               decoration: BoxDecoration(
                                 color: const Color(0xFFF1F5F9),
                                 shape: BoxShape.circle,
-                                border: Border.all(color: const Color(0xFFE2E8F0)),
+                                border:
+                                    Border.all(color: const Color(0xFFE2E8F0)),
                               ),
                               child: const Icon(
                                 Icons.arrow_forward_ios_rounded,
-                                size: 14,
+                                size: 12,
                                 color: Color(0xFF1E293B),
                               ),
                             ),
@@ -874,8 +1080,8 @@ class _VercelBarsTimetableWidgetState extends State<VercelBarsTimetableWidget> {
                           child: ActionChip(
                             avatar: const Icon(Icons.today_rounded, size: 14),
                             label: Text(
-                              'Reset to Today (${DateHelpers.weekRangeLabel(weekOffset: _weekOffset)})',
-                              style: const TextStyle(fontSize: 11),
+                              'Reset (${DateHelpers.weekRangeLabel(weekOffset: _weekOffset)})',
+                              style: const TextStyle(fontSize: 10),
                             ),
                             onPressed: () {
                               setState(() => _weekOffset = 0);
@@ -888,20 +1094,20 @@ class _VercelBarsTimetableWidgetState extends State<VercelBarsTimetableWidget> {
                 ),
               ),
               if (_canToggleHoliday) ...[
-                const SizedBox(width: 8),
-                _buildHolidayToggle(),
+                SizedBox(width: isMobile ? 5 : 8),
+                _buildHolidayToggle(isMobile: isMobile),
               ],
               if (widget.userRole == 'faculty_my_schedule') ...[
-                const SizedBox(width: 8),
-                _buildFacultyDayLeaveToggle(),
+                SizedBox(width: isMobile ? 5 : 8),
+                _buildFacultyDayLeaveToggle(isMobile: isMobile),
               ],
               if (_canUseSwapMode) ...[
-                const SizedBox(width: 8),
-                _buildSwapModeToggle(),
+                SizedBox(width: isMobile ? 5 : 8),
+                _buildSwapModeToggle(isMobile: isMobile),
               ],
               if (_isAdmin || _isFacultyOrCC) ...[
-                const SizedBox(width: 8),
-                _buildRescheduleToggle(),
+                SizedBox(width: isMobile ? 5 : 8),
+                _buildRescheduleToggle(isMobile: isMobile),
               ],
             ],
           ),
@@ -1321,56 +1527,6 @@ class _VercelBarsTimetableWidgetState extends State<VercelBarsTimetableWidget> {
           },
         ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildSwapModeToggle() {
-    return InkWell(
-      onTap: _swapSubmitting ? null : _toggleSwapMode,
-      borderRadius: BorderRadius.circular(20),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: _swapModeOn
-              ? const Color(0xFF0EA5E9)
-              : const Color(0xFFF8FAFC),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: _swapModeOn
-                ? const Color(0xFF0EA5E9)
-                : const Color(0xFFE2E8F0),
-          ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (_swapSubmitting)
-              const SizedBox(
-                width: 14,
-                height: 14,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: Colors.white,
-                ),
-              )
-            else
-              Icon(
-                Icons.swap_horiz_rounded,
-                size: 16,
-                color: _swapModeOn ? Colors.white : const Color(0xFF475569),
-              ),
-            const SizedBox(width: 6),
-            Text(
-              'Swap',
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.bold,
-                color: _swapModeOn ? Colors.white : const Color(0xFF475569),
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }

@@ -127,7 +127,7 @@ class _CreateCollegeScreenState extends State<CreateCollegeScreen> {
             ),
             const SizedBox(height: 24),
             const Text(
-              'Your Admin (HOD) Account',
+              'Your Admin Account',
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 12),

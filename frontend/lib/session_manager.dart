@@ -151,5 +151,16 @@ class SessionManager {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('last_page');
   }
+
+  // ---- Mobile Horizontal / Landscape 2D Grid Preference ----
+  static Future<void> saveGridOrientationPreference(bool isHorizontal) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('mobile_grid_horizontal_pref', isHorizontal);
+  }
+
+  static Future<bool> getGridOrientationPreference() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool('mobile_grid_horizontal_pref') ?? false;
+  }
 }
 

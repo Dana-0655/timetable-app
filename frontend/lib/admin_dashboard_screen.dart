@@ -822,9 +822,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   }
 
   @override
+  @override
   Widget build(BuildContext context) {
     final displayClasses = _sortedClasses;
     final ccElsewhere = _ccClassesElsewhere;
+    final isMobile = MediaQuery.of(context).size.width < 700;
 
     return Scaffold(
       appBar: AppBar(
@@ -858,51 +860,151 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
               ).then((_) => _fetchClasses());
             },
           ),
-          IconButton(
-            icon: const Icon(Icons.person_add),
-            tooltip: 'Add Faculty',
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => AdminAddFacultyScreen(
-                  adminId: widget.adminId,
-                  collegeId: widget.collegeId,
+          if (!isMobile) ...[
+            IconButton(
+              icon: const Icon(Icons.person_add),
+              tooltip: 'Add Faculty',
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => AdminAddFacultyScreen(
+                    adminId: widget.adminId,
+                    collegeId: widget.collegeId,
+                  ),
                 ),
               ),
             ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.admin_panel_settings),
-            tooltip: 'Give Admin Access',
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) =>
-                    PromoteFacultyScreen(collegeId: widget.collegeId),
+            IconButton(
+              icon: const Icon(Icons.admin_panel_settings),
+              tooltip: 'Give Admin Access',
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) =>
+                      PromoteFacultyScreen(collegeId: widget.collegeId),
+                ),
               ),
             ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.calendar_month),
-            tooltip: 'Manage Semesters',
-            onPressed: _openSemesterManagement,
-          ),
-          IconButton(
-            icon: const Icon(Icons.beach_access),
-            tooltip: 'Manage Holidays',
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) =>
-                    HolidayManagementScreen(collegeId: widget.collegeId),
+            IconButton(
+              icon: const Icon(Icons.calendar_month),
+              tooltip: 'Manage Semesters',
+              onPressed: _openSemesterManagement,
+            ),
+            IconButton(
+              icon: const Icon(Icons.beach_access),
+              tooltip: 'Manage Holidays',
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) =>
+                      HolidayManagementScreen(collegeId: widget.collegeId),
+                ),
               ),
             ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.logout),
-            tooltip: 'Logout',
-            onPressed: _logout,
-          ),
+            IconButton(
+              icon: const Icon(Icons.logout),
+              tooltip: 'Logout',
+              onPressed: _logout,
+            ),
+          ] else ...[
+            PopupMenuButton<String>(
+              icon: const Icon(Icons.more_vert_rounded),
+              tooltip: 'More Admin Options',
+              onSelected: (val) {
+                switch (val) {
+                  case 'add_faculty':
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => AdminAddFacultyScreen(
+                          adminId: widget.adminId,
+                          collegeId: widget.collegeId,
+                        ),
+                      ),
+                    );
+                    break;
+                  case 'give_admin':
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) =>
+                            PromoteFacultyScreen(collegeId: widget.collegeId),
+                      ),
+                    );
+                    break;
+                  case 'manage_semesters':
+                    _openSemesterManagement();
+                    break;
+                  case 'manage_holidays':
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => HolidayManagementScreen(
+                          collegeId: widget.collegeId,
+                        ),
+                      ),
+                    );
+                    break;
+                  case 'logout':
+                    _logout();
+                    break;
+                }
+              },
+              itemBuilder: (context) => const [
+                PopupMenuItem(
+                  value: 'add_faculty',
+                  child: Row(
+                    children: [
+                      Icon(Icons.person_add_rounded, size: 20, color: Color(0xFF1565C0)),
+                      SizedBox(width: 12),
+                      Text('Add Faculty'),
+                    ],
+                  ),
+                ),
+                PopupMenuItem(
+                  value: 'give_admin',
+                  child: Row(
+                    children: [
+                      Icon(Icons.admin_panel_settings_rounded, size: 20, color: Color(0xFF2E7D32)),
+                      SizedBox(width: 12),
+                      Text('Give Admin Access'),
+                    ],
+                  ),
+                ),
+                PopupMenuItem(
+                  value: 'manage_semesters',
+                  child: Row(
+                    children: [
+                      Icon(Icons.calendar_month_rounded, size: 20, color: Color(0xFFEF6C00)),
+                      SizedBox(width: 12),
+                      Text('Manage Semesters'),
+                    ],
+                  ),
+                ),
+                PopupMenuItem(
+                  value: 'manage_holidays',
+                  child: Row(
+                    children: [
+                      Icon(Icons.beach_access_rounded, size: 20, color: Colors.indigo),
+                      SizedBox(width: 12),
+                      Text('Manage Holidays'),
+                    ],
+                  ),
+                ),
+                PopupMenuDivider(),
+                PopupMenuItem(
+                  value: 'logout',
+                  child: Row(
+                    children: [
+                      Icon(Icons.logout_rounded, size: 20, color: Colors.red),
+                      SizedBox(width: 12),
+                      Text('Logout', style: TextStyle(color: Colors.red)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ],
         ],
       ),
       body: Column(
@@ -947,75 +1049,80 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                   ),
                   const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      OutlinedButton.icon(
-                        icon: const Icon(Icons.schedule, size: 16),
-                        label: const Text('My Schedule'),
-                        onPressed: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => FacultyMyScheduleScreen(
-                              facultyId: _linkedFacultyId!,
-                              collegeId: widget.collegeId,
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        OutlinedButton.icon(
+                          icon: const Icon(Icons.schedule, size: 16),
+                          label: const Text('My Schedule'),
+                          onPressed: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => FacultyMyScheduleScreen(
+                                facultyId: _linkedFacultyId!,
+                                collegeId: widget.collegeId,
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                      OutlinedButton.icon(
-                        icon: const Icon(Icons.search, size: 16),
-                        label: const Text('Browse'),
-                        onPressed: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => BrowseTimetablesScreen(
-                              facultyId: _linkedFacultyId!,
-                              collegeId: widget.collegeId,
+                        const SizedBox(width: 8),
+                        OutlinedButton.icon(
+                          icon: const Icon(Icons.search, size: 16),
+                          label: const Text('Browse'),
+                          onPressed: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => BrowseTimetablesScreen(
+                                facultyId: _linkedFacultyId!,
+                                collegeId: widget.collegeId,
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                      OutlinedButton.icon(
-                        icon: const Icon(Icons.inbox, size: 16),
-                        label: const Text('Swap Responses'),
-                        onPressed: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => FacultySwapResponsesScreen(
-                              facultyId: _linkedFacultyId!,
+                        const SizedBox(width: 8),
+                        OutlinedButton.icon(
+                          icon: const Icon(Icons.inbox, size: 16),
+                          label: const Text('Swap Responses'),
+                          onPressed: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => FacultySwapResponsesScreen(
+                                facultyId: _linkedFacultyId!,
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                      OutlinedButton.icon(
-                        icon: const Icon(Icons.pending_actions, size: 16),
-                        label: const Text('My Leave Requests'),
-                        onPressed: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => FacultyPendingLeavesScreen(
-                              facultyId: _linkedFacultyId!,
-                              collegeId: widget.collegeId,
+                        const SizedBox(width: 8),
+                        OutlinedButton.icon(
+                          icon: const Icon(Icons.pending_actions, size: 16),
+                          label: const Text('My Leave Requests'),
+                          onPressed: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => FacultyPendingLeavesScreen(
+                                facultyId: _linkedFacultyId!,
+                                collegeId: widget.collegeId,
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                      OutlinedButton.icon(
-                        icon: const Icon(Icons.event_available, size: 16),
-                        label: const Text('Open Slots'),
-                        onPressed: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => FacultyOpenSlotsScreen(
-                              facultyId: _linkedFacultyId!,
-                              collegeId: widget.collegeId,
+                        const SizedBox(width: 8),
+                        OutlinedButton.icon(
+                          icon: const Icon(Icons.event_available, size: 16),
+                          label: const Text('Open Slots'),
+                          onPressed: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => FacultyOpenSlotsScreen(
+                                facultyId: _linkedFacultyId!,
+                                collegeId: widget.collegeId,
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                   if (ccElsewhere.isNotEmpty) ...[
                     const SizedBox(height: 10),
@@ -1099,6 +1206,175 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                           _linkedFacultyId != null &&
                           cls['cc_faculty_id'] == _linkedFacultyId;
                       final className = '${cls['year']} - ${cls['section']}';
+
+                      if (isMobile) {
+                        return Card(
+                          margin: const EdgeInsets.only(bottom: 12),
+                          elevation: 2,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                            side: BorderSide(
+                              color: isMyCC ? Colors.purple.shade200 : Colors.grey.shade200,
+                            ),
+                          ),
+                          color: isMyCC ? Colors.purple.shade50.withValues(alpha: 0.3) : Colors.white,
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(14),
+                            onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => AdminTimetableViewScreen(
+                                  classId: cls['class_id'],
+                                  className: className,
+                                  collegeId: widget.collegeId,
+                                ),
+                              ),
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.all(14),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  // Top Title & Badges
+                                  Row(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              '${cls['year']} - Section ${cls['section']}',
+                                              style: const TextStyle(
+                                                fontSize: 16,
+                                                fontWeight: FontWeight.bold,
+                                                color: Color(0xFF0F172A),
+                                              ),
+                                            ),
+                                            const SizedBox(height: 3),
+                                            Text(
+                                              cls['department'] ?? '',
+                                              style: TextStyle(
+                                                fontSize: 13,
+                                                color: Colors.blueGrey.shade700,
+                                                fontWeight: FontWeight.w500,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      if (isMyCC)
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 8,
+                                            vertical: 3,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: Colors.purple.shade100,
+                                            borderRadius: BorderRadius.circular(10),
+                                          ),
+                                          child: Text(
+                                            'Your CC',
+                                            style: TextStyle(
+                                              fontSize: 11,
+                                              color: Colors.purple.shade900,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+
+                                  const SizedBox(height: 10),
+                                  const Divider(height: 1),
+                                  const SizedBox(height: 8),
+
+                                  // Bottom Action Bar
+                                  SingleChildScrollView(
+                                    scrollDirection: Axis.horizontal,
+                                    child: Row(
+                                      children: [
+                                        hasCC
+                                            ? ActionChip(
+                                                avatar: const Icon(Icons.check_circle_rounded, size: 14, color: Colors.green),
+                                                label: const Text('CC Assigned', style: TextStyle(fontSize: 12)),
+                                                backgroundColor: Colors.green.shade50,
+                                                onPressed: () => _showCCDetails(cls['class_id']),
+                                              )
+                                            : ActionChip(
+                                                avatar: const Icon(Icons.person_add_outlined, size: 14, color: Colors.orange),
+                                                label: const Text('Unassigned', style: TextStyle(fontSize: 12)),
+                                                backgroundColor: Colors.orange.shade50,
+                                                onPressed: () => _showInviteFacultyDialog(cls['class_id']),
+                                              ),
+                                        const SizedBox(width: 6),
+                                        IconButton.filledTonal(
+                                          icon: const Icon(Icons.people_alt_rounded, size: 18),
+                                          tooltip: 'CC Requests',
+                                          onPressed: () => _showPendingRequests(
+                                            cls['class_id'],
+                                            className,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 4),
+                                        IconButton.filledTonal(
+                                          icon: const Icon(Icons.menu_book_rounded, size: 18),
+                                          tooltip: 'Manage Courses',
+                                          onPressed: () => Navigator.push(
+                                            context,
+                                            MaterialPageRoute(
+                                              builder: (context) => ClassCoursesScreen(
+                                                classId: cls['class_id'],
+                                                className: className,
+                                                collegeId: widget.collegeId,
+                                                selfFacultyId: _linkedFacultyId,
+                                                selfAdminId: widget.adminId,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                        if (isMyCC) ...[
+                                          const SizedBox(width: 4),
+                                          IconButton.filledTonal(
+                                            icon: const Icon(Icons.edit_calendar_rounded, size: 18),
+                                            tooltip: 'Build Timetable',
+                                            onPressed: () => Navigator.push(
+                                              context,
+                                              MaterialPageRoute(
+                                                builder: (context) => TimetableGridScreen(
+                                                  classId: cls['class_id'],
+                                                  className: className,
+                                                  facultyId: _linkedFacultyId!,
+                                                  collegeId: widget.collegeId,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                        const SizedBox(width: 4),
+                                        IconButton.filledTonal(
+                                          icon: const Icon(Icons.edit_rounded, size: 18),
+                                          tooltip: 'Edit Class',
+                                          onPressed: () => _showEditClassDialog(cls),
+                                        ),
+                                        const SizedBox(width: 4),
+                                        IconButton.filledTonal(
+                                          icon: const Icon(Icons.delete_outline_rounded, size: 18, color: Colors.red),
+                                          tooltip: 'Delete Class',
+                                          onPressed: () => _confirmDeleteClass(
+                                            cls['class_id'],
+                                            className,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        );
+                      }
 
                       return Card(
                         color: isMyCC ? Colors.purple.shade50 : null,

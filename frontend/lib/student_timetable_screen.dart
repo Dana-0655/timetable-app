@@ -532,6 +532,8 @@ class _StudentTimetableScreenState extends State<StudentTimetableScreen> {
         ? '$year - $dept - Sec $sec'
         : widget.className;
 
+    final isMobile = MediaQuery.of(context).size.width < 700;
+
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.className),
@@ -635,8 +637,11 @@ class _StudentTimetableScreenState extends State<StudentTimetableScreen> {
                 // Dark Header Card matching Joz 2x Grid Matrix design
                 Container(
                   width: double.infinity,
-                  margin: const EdgeInsets.fromLTRB(12, 4, 12, 10),
-                  padding: const EdgeInsets.all(16),
+                  margin: EdgeInsets.fromLTRB(12, 4, 12, isMobile ? 6 : 10),
+                  padding: EdgeInsets.symmetric(
+                    horizontal: isMobile ? 12 : 16,
+                    vertical: isMobile ? 8 : 16,
+                  ),
                   decoration: BoxDecoration(
                     color: const Color(0xFF0F172A),
                     borderRadius: BorderRadius.circular(16),
@@ -652,13 +657,13 @@ class _StudentTimetableScreenState extends State<StudentTimetableScreen> {
                     children: [
                       Text(
                         displayTitle,
-                        style: const TextStyle(
+                        style: TextStyle(
                           color: Colors.white,
-                          fontSize: 18,
+                          fontSize: isMobile ? 15 : 18,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
-                      const SizedBox(height: 12),
+                      SizedBox(height: isMobile ? 6 : 12),
 
                       // Chips Row: Branch | Room | CC | Pinned Badge
                       Wrap(
@@ -728,7 +733,7 @@ class _StudentTimetableScreenState extends State<StudentTimetableScreen> {
                         ],
                       ),
 
-                      const SizedBox(height: 14),
+                      SizedBox(height: isMobile ? 8 : 14),
 
                       // View Toggle Selector
                       Container(

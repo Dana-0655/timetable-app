@@ -63,7 +63,7 @@ class _PromoteFacultyScreenState extends State<PromoteFacultyScreen> {
       builder: (context) => AlertDialog(
         title: const Text('Promote to Admin'),
         content: Text(
-          'Give $name Admin (HOD) access? They will be able to log in as Admin using their existing email and password.',
+          'Give $name Admin access? They will be able to log in as Admin using their existing email and password.',
         ),
         actions: [
           TextButton(

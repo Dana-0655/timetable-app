@@ -210,18 +210,22 @@ class _ClassCoursesScreenState extends State<ClassCoursesScreen> {
   }
 
   Future<void> _fetchTimetable() async {
+    if (!mounted) return;
     setState(() => _isLoading = true);
     final url = Uri.parse('http://127.0.0.1:5000/timetable/${widget.classId}');
     try {
       final response = await http.get(url);
+      if (!mounted) return;
       if (response.statusCode == 200) {
         setState(() {
           _entries = jsonDecode(response.body);
           _isLoading = false;
         });
+      } else {
+        setState(() => _isLoading = false);
       }
     } catch (e) {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
