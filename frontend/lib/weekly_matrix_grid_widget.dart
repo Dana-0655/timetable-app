@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'fill_slot_screen.dart';
 import 'schedule_builder_screen.dart';
 import 'swap_color_utils.dart';
+import 'date_helpers.dart';
 
 // TODO: replace with your existing base URL constant if you have one
 const String _kApiBase = "http://127.0.0.1:5000";
@@ -35,7 +36,18 @@ class WeeklyMatrixGridWidget extends StatefulWidget {
 class _WeeklyMatrixGridWidgetState extends State<WeeklyMatrixGridWidget> {
   bool _isLoading = true;
   List<dynamic> _entries = [];
-  final List<String> _days = kWeekDays;
+  Map<String, dynamic> _holidays = {};
+  bool _holidaySubmitting = false;
+  int _weekOffset = 0; // 0 = current week, 1 = next week, -1 = previous week
+  final List<String> _days = const [
+    'MON',
+    'TUE',
+    'WED',
+    'THU',
+    'FRI',
+    'SAT',
+    'SUN',
+  ];
 
   // ---- Swap mode state (new — doesn't touch existing state) ----
   bool _swapModeOn = false;
@@ -50,19 +62,77 @@ class _WeeklyMatrixGridWidgetState extends State<WeeklyMatrixGridWidget> {
 
   Future<void> _fetchTimetable() async {
     setState(() => _isLoading = true);
-    final url = Uri.parse('http://127.0.0.1:5000/timetable/${widget.classId}');
+    await Future.wait([_fetchEntries(), _fetchHolidays()]);
+    if (mounted) setState(() => _isLoading = false);
+  }
+
+  Future<void> _fetchEntries() async {
+    final url = Uri.parse('$_kApiBase/timetable/${widget.classId}');
     try {
       final response = await http.get(url);
       if (response.statusCode == 200) {
-        setState(() {
-          _entries = jsonDecode(response.body);
-          _isLoading = false;
-        });
-      } else {
-        setState(() => _isLoading = false);
+        _entries = jsonDecode(response.body);
       }
+    } catch (_) {}
+  }
+
+  Future<void> _fetchHolidays() async {
+    final url = Uri.parse(
+      '$_kApiBase/holidays_for_class_week/${widget.classId}',
+    );
+    try {
+      final response = await http.get(url);
+      if (response.statusCode == 200) {
+        _holidays = Map<String, dynamic>.from(jsonDecode(response.body));
+      }
+    } catch (_) {}
+  }
+
+  bool get _canToggleHoliday {
+    if (!widget.canEdit) return false;
+    return _isAdmin || widget.userRole == 'cc';
+  }
+
+  Future<void> _toggleHoliday(String dayCode) async {
+    if (!_canToggleHoliday || _holidaySubmitting) return;
+    final isoDate = DateHelpers.isoForDayCode(dayCode, weekOffset: _weekOffset);
+    final isCustomHoliday = _holidays.containsKey(isoDate);
+
+    setState(() => _holidaySubmitting = true);
+    try {
+      if (isCustomHoliday) {
+        final holidayId = _holidays[isoDate]['holiday_id'];
+        final res = await http.post(
+          Uri.parse('$_kApiBase/delete_holiday'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({'holiday_id': holidayId}),
+        );
+        if (res.statusCode == 200) {
+          _showSwapSnack('Unmarked $dayCode as holiday.');
+        }
+      } else {
+        final res = await http.post(
+          Uri.parse('$_kApiBase/mark_holiday'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({
+            'class_id': widget.classId,
+            'holiday_date': isoDate,
+            'reason': 'Declared Holiday',
+          }),
+        );
+        if (res.statusCode == 200) {
+          _showSwapSnack('Marked $dayCode as holiday!');
+        } else {
+          final body = jsonDecode(res.body);
+          _showSwapSnack(body['error'] ?? 'Could not mark holiday.');
+        }
+      }
+      await _fetchHolidays();
+      widget.onTimetableChanged?.call();
     } catch (e) {
-      setState(() => _isLoading = false);
+      _showSwapSnack('Network error updating holiday state.');
+    } finally {
+      if (mounted) setState(() => _holidaySubmitting = false);
     }
   }
 
@@ -461,10 +531,61 @@ class _WeeklyMatrixGridWidgetState extends State<WeeklyMatrixGridWidget> {
     }
 
     if (_entries.isEmpty) {
-      return const Center(
+      return Center(
         child: Padding(
-          padding: EdgeInsets.all(24.0),
-          child: Text('No timetable entries available for this class.'),
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(
+                Icons.calendar_today_outlined,
+                size: 48,
+                color: Color(0xFF94A3B8),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'No timetable entries available for this class.',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w500,
+                  color: Color(0xFF64748B),
+                ),
+              ),
+              if (widget.canEdit) ...[
+                const SizedBox(height: 16),
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF0F172A),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 12,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  icon: const Icon(Icons.edit_calendar_rounded, size: 18),
+                  label: const Text('Make / Build Schedule'),
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => ScheduleBuilderScreen(
+                          classId: widget.classId,
+                          className: widget.className,
+                          dayOfWeek: 'MON',
+                        ),
+                      ),
+                    ).then((_) {
+                      _fetchTimetable();
+                      widget.onTimetableChanged?.call();
+                    });
+                  },
+                ),
+              ],
+            ],
+          ),
         ),
       );
     }
@@ -542,27 +663,224 @@ class _WeeklyMatrixGridWidgetState extends State<WeeklyMatrixGridWidget> {
                       ],
                     ),
 
+                    // ---- Navigation Row: Above Monday (Previous Week) ----
+                    TableRow(
+                      decoration: const BoxDecoration(color: Color(0xFFF1F5F9)),
+                      children: [
+                        InkWell(
+                          onTap: () {
+                            setState(() => _weekOffset--);
+                            _fetchHolidays();
+                          },
+                          child: Container(
+                            height: 38,
+                            alignment: Alignment.center,
+                            child: const Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.arrow_upward_rounded,
+                                  size: 14,
+                                  color: Color(0xFF0F172A),
+                                ),
+                                SizedBox(width: 4),
+                                Text(
+                                  'Prev Week',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF0F172A),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        for (int p = 1; p <= maxPeriod; p++)
+                          Container(
+                            height: 38,
+                            alignment: Alignment.center,
+                            child: p == 1
+                                ? Text(
+                                    _weekOffset == 0
+                                        ? 'Current Week (${DateHelpers.weekRangeLabel(weekOffset: 0)})'
+                                        : '${DateHelpers.weekRangeLabel(weekOffset: _weekOffset)} (${_weekOffset > 0 ? "+$_weekOffset W" : "$_weekOffset W"})',
+                                    style: const TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.bold,
+                                      color: Color(0xFF0369A1),
+                                    ),
+                                  )
+                                : null,
+                          ),
+                      ],
+                    ),
+
                     for (String day in _days)
                       TableRow(
                         children: [
-                          Container(
-                            height: 90,
-                            padding: const EdgeInsets.all(8),
-                            alignment: Alignment.center,
-                            color: Colors.indigo.shade50.withOpacity(0.4),
-                            child: Text(
-                              day,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 13,
-                                color: Color(0xFF1E293B),
-                              ),
-                            ),
+                          Builder(
+                            builder: (context) {
+                              final isoDate = DateHelpers.isoForDayCode(
+                                day,
+                                weekOffset: _weekOffset,
+                              );
+                              final isCustomHoliday = _holidays.containsKey(
+                                isoDate,
+                              );
+                              final isHoliday = isCustomHoliday || day == 'SUN';
+
+                              return Container(
+                                height: 90,
+                                padding: const EdgeInsets.all(4),
+                                alignment: Alignment.center,
+                                color: isHoliday
+                                    ? Colors.orange.shade50
+                                    : Colors.indigo.shade50.withValues(
+                                        alpha: 0.4,
+                                      ),
+                                child: Stack(
+                                  children: [
+                                    Center(
+                                      child: Column(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.center,
+                                        children: [
+                                          Text(
+                                            day,
+                                            style: TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 13,
+                                              color: isHoliday
+                                                  ? Colors.orange.shade900
+                                                  : const Color(0xFF1E293B),
+                                            ),
+                                          ),
+                                          const SizedBox(height: 2),
+                                          Text(
+                                            DateHelpers.labelForDayCode(
+                                              day,
+                                              weekOffset: _weekOffset,
+                                            ),
+                                            style: TextStyle(
+                                              fontSize: 10,
+                                              color: isHoliday
+                                                  ? Colors.orange.shade700
+                                                  : Colors.indigo.shade400,
+                                            ),
+                                          ),
+                                          if (isHoliday) ...[
+                                            const SizedBox(height: 2),
+                                            Text(
+                                              'HOLIDAY',
+                                              style: TextStyle(
+                                                fontSize: 8,
+                                                fontWeight: FontWeight.bold,
+                                                color: Colors.orange.shade800,
+                                                letterSpacing: 0.5,
+                                              ),
+                                            ),
+                                          ],
+                                        ],
+                                      ),
+                                    ),
+                                    if (_canToggleHoliday && day != 'SUN')
+                                      Positioned(
+                                        left: 2,
+                                        bottom: 2,
+                                        child: InkWell(
+                                          onTap: () => _toggleHoliday(day),
+                                          borderRadius: BorderRadius.circular(
+                                            12,
+                                          ),
+                                          child: Padding(
+                                            padding: const EdgeInsets.all(2.0),
+                                            child: Tooltip(
+                                              message: isCustomHoliday
+                                                  ? 'Unmark Holiday'
+                                                  : 'Mark as Holiday',
+                                              child: Icon(
+                                                isCustomHoliday
+                                                    ? Icons.beach_access_rounded
+                                                    : Icons
+                                                          .beach_access_outlined,
+                                                size: 16,
+                                                color: isCustomHoliday
+                                                    ? Colors.orange.shade700
+                                                    : Colors.indigo.shade400,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      )
+                                    else if (isHoliday)
+                                      Positioned(
+                                        left: 2,
+                                        bottom: 2,
+                                        child: Padding(
+                                          padding: const EdgeInsets.all(2.0),
+                                          child: Icon(
+                                            Icons.beach_access_rounded,
+                                            size: 16,
+                                            color: Colors.orange.shade700,
+                                          ),
+                                        ),
+                                      ),
+                                    if (widget.canEdit)
+                                      Positioned(
+                                        right: 2,
+                                        bottom: 2,
+                                        child: InkWell(
+                                          onTap: () {
+                                            Navigator.push(
+                                              context,
+                                              MaterialPageRoute(
+                                                builder: (context) =>
+                                                    ScheduleBuilderScreen(
+                                                      classId: widget.classId,
+                                                      className:
+                                                          widget.className,
+                                                      dayOfWeek: day,
+                                                    ),
+                                              ),
+                                            ).then((_) {
+                                              _fetchTimetable();
+                                              widget.onTimetableChanged?.call();
+                                            });
+                                          },
+                                          borderRadius: BorderRadius.circular(
+                                            12,
+                                          ),
+                                          child: Padding(
+                                            padding: const EdgeInsets.all(2.0),
+                                            child: Tooltip(
+                                              message:
+                                                  'Reschedule Periods & Breaks ($day)',
+                                              child: const Icon(
+                                                Icons.edit_calendar_rounded,
+                                                size: 16,
+                                                color: Color(0xFF475569),
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              );
+                            },
                           ),
 
-                          for (int p = 1; p <= maxPeriod; p++) ...[
+                          for (int p = 1; p <= maxPeriod; p++)
                             Builder(
                               builder: (context) {
+                                final isoDate = DateHelpers.isoForDayCode(
+                                  day,
+                                  weekOffset: _weekOffset,
+                                );
+                                final isHoliday =
+                                    _holidays.containsKey(isoDate) ||
+                                    day == 'SUN';
                                 final entry = _entries.firstWhere(
                                   (e) =>
                                       e['day_of_week'] == day &&
@@ -575,18 +893,45 @@ class _WeeklyMatrixGridWidgetState extends State<WeeklyMatrixGridWidget> {
                                     onTap: () => _handleCellTap(null, day, p),
                                     child: Container(
                                       height: 90,
-                                      color: Colors.grey.shade50,
+                                      color: isHoliday
+                                          ? Colors.orange.shade50
+                                          : Colors.grey.shade50,
                                       alignment: Alignment.center,
-                                      child: Text(
-                                        widget.canEdit
-                                            ? 'Free Period\n(Tap to add)'
-                                            : 'Free Period',
-                                        textAlign: TextAlign.center,
-                                        style: TextStyle(
-                                          fontSize: 11,
-                                          color: Colors.grey.shade500,
-                                        ),
-                                      ),
+                                      child: isHoliday
+                                          ? Column(
+                                              mainAxisAlignment:
+                                                  MainAxisAlignment.center,
+                                              children: [
+                                                Icon(
+                                                  Icons.beach_access_rounded,
+                                                  size: 16,
+                                                  color: Colors.orange.shade400,
+                                                ),
+                                                const SizedBox(height: 4),
+                                                Text(
+                                                  widget.canEdit
+                                                      ? 'Holiday\n(Tap for special class)'
+                                                      : 'Holiday',
+                                                  textAlign: TextAlign.center,
+                                                  style: TextStyle(
+                                                    fontSize: 10,
+                                                    color:
+                                                        Colors.orange.shade700,
+                                                    fontWeight: FontWeight.w600,
+                                                  ),
+                                                ),
+                                              ],
+                                            )
+                                          : Text(
+                                              widget.canEdit
+                                                  ? 'Free Period\n(Tap to add)'
+                                                  : 'Free Period',
+                                              textAlign: TextAlign.center,
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                color: Colors.grey.shade500,
+                                              ),
+                                            ),
                                     ),
                                   );
                                 }
@@ -778,9 +1123,74 @@ class _WeeklyMatrixGridWidgetState extends State<WeeklyMatrixGridWidget> {
                                 );
                               },
                             ),
-                          ],
                         ],
                       ),
+
+                    // ---- Navigation Row: Below Sunday (Next / Future Week) ----
+                    TableRow(
+                      decoration: const BoxDecoration(color: Color(0xFFF1F5F9)),
+                      children: [
+                        InkWell(
+                          onTap: () {
+                            setState(() => _weekOffset++);
+                            _fetchHolidays();
+                          },
+                          child: Container(
+                            height: 38,
+                            alignment: Alignment.center,
+                            child: const Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.arrow_downward_rounded,
+                                  size: 14,
+                                  color: Color(0xFF0F172A),
+                                ),
+                                SizedBox(width: 4),
+                                Text(
+                                  'Next Week',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF0F172A),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        for (int p = 1; p <= maxPeriod; p++)
+                          Container(
+                            height: 38,
+                            alignment: Alignment.center,
+                            child: p == 1 && _weekOffset != 0
+                                ? TextButton.icon(
+                                    style: TextButton.styleFrom(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 2,
+                                      ),
+                                    ),
+                                    icon: const Icon(
+                                      Icons.today_rounded,
+                                      size: 14,
+                                    ),
+                                    label: const Text(
+                                      'Back to Current Week',
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    onPressed: () {
+                                      setState(() => _weekOffset = 0);
+                                      _fetchHolidays();
+                                    },
+                                  )
+                                : null,
+                          ),
+                      ],
+                    ),
                   ],
                 ),
               ),

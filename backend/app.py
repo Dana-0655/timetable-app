@@ -2959,15 +2959,23 @@ def update_class_room():
 @app.route("/mark_holiday", methods=["POST"])
 def mark_holiday():
     data = request.get_json()
+    college_id = data.get("college_id")
+    if not college_id and data.get("class_id"):
+        class_obj = Class.query.get(data["class_id"])
+        if class_obj:
+            college_id = class_obj.college_id
+    if not college_id:
+        return jsonify({"error": "college_id or class_id required"}), 400
+
     existing = Holiday.query.filter_by(
-        college_id=data["college_id"], holiday_date=data["holiday_date"]
+        college_id=college_id, holiday_date=data["holiday_date"]
     ).first()
     if existing:
         return jsonify({"error": "This date is already marked as a holiday"}), 400
     new_holiday = Holiday(
-        college_id=data["college_id"],
+        college_id=college_id,
         holiday_date=data["holiday_date"],
-        reason=data.get("reason", "")
+        reason=data.get("reason", "Declared Holiday")
     )
     db.session.add(new_holiday)
     db.session.commit()

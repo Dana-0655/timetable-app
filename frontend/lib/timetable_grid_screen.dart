@@ -5,6 +5,8 @@ import 'weekly_matrix_grid_widget.dart';
 import 'vercel_bars_timetable_widget.dart';
 import 'class_info_dialog.dart';
 import 'swap_color_utils.dart';
+import 'fill_slot_screen.dart';
+import 'schedule_builder_screen.dart';
 
 class TimetableGridScreen extends StatefulWidget {
   final int classId;
@@ -232,6 +234,39 @@ class _TimetableGridScreenState extends State<TimetableGridScreen> {
                     currentFacultyId: widget.facultyId,
                     swapColorIndex: _swapColorIndex,
                     onRefreshNeeded: _fetchClassData,
+                    onCellTap: widget.isCC
+                        ? (entry) {
+                            if (entry != null) {
+                              if (entry['entry_type'] != 'break') {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => FillSlotScreen(
+                                      entryId: entry['entry_id'],
+                                      entryType: entry['entry_type'] ?? 'class',
+                                      isEdit: true,
+                                      existingCourseName: entry['course_name'],
+                                      existingLabel: entry['label'],
+                                      existingStartTime: entry['start_time'],
+                                      existingEndTime: entry['end_time'],
+                                    ),
+                                  ),
+                                ).then((_) => _fetchClassData());
+                              }
+                            } else {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => ScheduleBuilderScreen(
+                                    classId: widget.classId,
+                                    className: widget.className,
+                                    dayOfWeek: 'SUN',
+                                  ),
+                                ),
+                              ).then((_) => _fetchClassData());
+                            }
+                          }
+                        : null,
                   ),
           ),
         ],
