@@ -878,7 +878,13 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     baseUrl: 'http://127.0.0.1:5000',
                   ),
                 ),
-              ).then((_) => _fetchClasses());
+              ).then((success) {
+                if (success == true) {
+                  _fetchActiveSemester().then((_) => _fetchClasses());
+                } else {
+                  _fetchClasses();
+                }
+              });
             },
           ),
           if (!isMobile) ...[
