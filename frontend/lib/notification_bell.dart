@@ -573,7 +573,7 @@ class _NotificationBellState extends State<NotificationBell> {
 
                                 final iconColor = _colorFor(notif['notif_type'] ?? '', isRead);
 
-                                return Container(
+                                return Material(
                                   color: isRead ? Colors.transparent : const Color(0xFF1565C0).withValues(alpha: 0.04),
                                   child: ListTile(
                                     contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),

@@ -215,9 +215,9 @@ class _TimetableGridScreenState extends State<TimetableGridScreen> {
                 ? WeeklyMatrixGridWidget(
                     classId: widget.classId,
                     className: widget.className,
-                    userRole: widget.isCC ? 'cc' : 'faculty',
+                    userRole: widget.facultyId == -1 ? 'admin' : (widget.isCC ? 'cc' : 'faculty'),
                     currentFacultyId: widget.facultyId,
-                    canEdit: widget.isCC,
+                    canEdit: widget.facultyId == -1 ? true : widget.isCC,
                     swapColorIndex: _swapColorIndex,
                     onTimetableChanged: _fetchClassData,
                   )
@@ -227,11 +227,11 @@ class _TimetableGridScreenState extends State<TimetableGridScreen> {
                     entries: _entries,
                     department: dept,
                     roomNo: room,
-                    userRole: widget.isCC ? 'cc' : 'faculty',
+                    userRole: widget.facultyId == -1 ? 'admin' : (widget.isCC ? 'cc' : 'faculty'),
                     currentFacultyId: widget.facultyId,
                     swapColorIndex: _swapColorIndex,
                     onRefreshNeeded: _fetchClassData,
-                    onCellTap: widget.isCC
+                    onCellTap: (widget.isCC || widget.facultyId == -1)
                         ? (entry) {
                             if (entry != null) {
                               if (entry['entry_type'] != 'break') {

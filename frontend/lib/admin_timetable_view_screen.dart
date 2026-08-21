@@ -13,6 +13,8 @@ class AdminTimetableViewScreen extends StatefulWidget {
   final String className;
   final int collegeId;
   final bool isReadOnly;
+  final String userRole;
+  final int currentFacultyId;
 
   const AdminTimetableViewScreen({
     super.key,
@@ -20,6 +22,8 @@ class AdminTimetableViewScreen extends StatefulWidget {
     required this.className,
     required this.collegeId,
     this.isReadOnly = false,
+    this.userRole = 'admin',
+    this.currentFacultyId = 0,
   });
 
   @override
@@ -219,8 +223,8 @@ class _AdminTimetableViewScreenState extends State<AdminTimetableViewScreen> {
                 ? WeeklyMatrixGridWidget(
                     classId: widget.classId,
                     className: widget.className,
-                    userRole: 'admin',
-                    currentFacultyId: 0,
+                    userRole: widget.userRole,
+                    currentFacultyId: widget.currentFacultyId,
                     canEdit: !widget.isReadOnly,
                     swapColorIndex: _swapColorIndex,
                     onTimetableChanged: _fetchClassData,
@@ -231,8 +235,8 @@ class _AdminTimetableViewScreenState extends State<AdminTimetableViewScreen> {
                     entries: _entries,
                     department: dept,
                     roomNo: room,
-                    userRole: 'admin',
-                    currentFacultyId: 0,
+                    userRole: widget.userRole,
+                    currentFacultyId: widget.currentFacultyId,
                     swapColorIndex: _swapColorIndex,
                     onRefreshNeeded: _fetchClassData,
                     onCellTap: !widget.isReadOnly

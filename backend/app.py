@@ -877,6 +877,12 @@ def process_and_solve_job(app_ctx, job_id, college_id, semester_id, file_bytes):
                         status_color='normal'
                     )
                     db.session.add(new_timetable_entry)
+                # 5b. Mark the target semester as active for this college
+                if semester_id:
+                    Semester.query.filter_by(college_id=college_id).update({"is_active": False})
+                    target_sem = Semester.query.get(semester_id)
+                    if target_sem:
+                        target_sem.is_active = True
                 
                 db.session.commit()
 
@@ -1248,19 +1254,48 @@ def get_faculty_related_classes(faculty_id):
     if not faculty:
         return jsonify([])
 
-    active_semester = Semester.query.filter_by(college_id=faculty.college_id, is_active=True).first()
-    semester_id = active_semester.semester_id if active_semester else None
+    # We do not filter by semester here, so that Faculty can see all classes they are related to,
+    # matching the behavior of "My Schedule" which also doesn't filter by semester.
+    cc_classes = Class.query.filter_by(cc_faculty_id=faculty_id).all()
 
-    cc_classes = Class.query.filter_by(cc_faculty_id=faculty_id, semester_id=semester_id).all()
-
+    # Get course classes
     course_class_ids = db.session.query(Course.class_id).filter_by(faculty_id=faculty_id).distinct().all()
     course_class_ids = [c[0] for c in course_class_ids]
-    course_classes = Class.query.filter(
-        Class.class_id.in_(course_class_ids),
-        Class.semester_id == semester_id
-    ).all() if course_class_ids else []
+    
+    # Get substitute classes
+    sub_leaves = Leave.query.filter_by(confirmed_faculty_id=faculty_id, status="confirmed").all()
+    sub_entry_ids = [l.entry_id for l in sub_leaves]
+    sub_class_ids = []
+    if sub_entry_ids:
+        sub_entries = TimetableEntry.query.filter(TimetableEntry.entry_id.in_(sub_entry_ids)).all()
+        sub_class_ids = [e.class_id for e in sub_entries]
+        
+    # Get swapped-in classes
+    swaps_as_req = SwapRequest.query.filter_by(requester_faculty_id=faculty_id, status="accepted").all()
+    swaps_as_tgt = SwapRequest.query.filter_by(target_faculty_id=faculty_id, status="accepted").all()
+    swap_entry_ids = [s.target_entry_id for s in swaps_as_req] + [s.requester_entry_id for s in swaps_as_tgt]
+    swap_class_ids = []
+    if swap_entry_ids:
+        swap_entries = TimetableEntry.query.filter(TimetableEntry.entry_id.in_(swap_entry_ids)).all()
+        swap_class_ids = [e.class_id for e in swap_entries]
 
-    merged = {c.class_id: c for c in cc_classes + course_classes}.values()
+    all_teaching_class_ids = list(set(course_class_ids + sub_class_ids + swap_class_ids))
+    
+    course_classes = Class.query.filter(Class.class_id.in_(all_teaching_class_ids)).all() if all_teaching_class_ids else []
+
+    # Find class IDs that actually have built timetable entries
+    classes_with_entries = set()
+    if all_teaching_class_ids:
+        entry_class_ids = db.session.query(TimetableEntry.class_id).filter(
+            TimetableEntry.class_id.in_(all_teaching_class_ids)
+        ).distinct().all()
+        classes_with_entries = {c[0] for c in entry_class_ids}
+
+    # For regular teaching faculty (non-CC), filter out classes where timetable entries haven't been built yet
+    valid_course_classes = [c for c in course_classes if c.class_id in classes_with_entries]
+
+    # CC classes are always included so CC faculty can build/manage them
+    merged = {c.class_id: c for c in cc_classes + valid_course_classes}.values()
 
     result = []
     for c in merged:
@@ -2180,36 +2215,38 @@ def add_class():
 
 @app.route("/delete_class", methods=["POST"])
 def delete_class():
-    data = request.get_json()
-    class_id = data.get("class_id")
-    class_obj = Class.query.get(class_id)
-    if not class_obj:
-        return jsonify({"error": "Class not found"}), 404
+    try:
+        data = request.get_json()
+        class_id = data.get("class_id")
+        class_obj = Class.query.get(class_id)
+        if not class_obj:
+            return jsonify({"error": "Class not found"}), 404
 
-    # 1. Cascade delete all timetable entries & dependent leaves/swaps/covers
-    delete_timetable_entries_cascade(class_ids=[class_id])
+        # 1. Cascade delete all timetable entries & dependent leaves/swaps/covers
+        delete_timetable_entries_cascade(class_ids=[class_id])
 
-    # 2. Delete CourseFacultyRequests tied to courses in this class
-    course_ids = [c.course_id for c in Course.query.filter_by(class_id=class_id).all()]
-    if course_ids:
-        CourseFacultyRequest.query.filter(CourseFacultyRequest.course_id.in_(course_ids)).delete(synchronize_session=False)
+        # 2. Delete CourseFacultyRequests tied to courses in this class
+        course_ids = [c.course_id for c in Course.query.filter_by(class_id=class_id).all()]
+        if course_ids:
+            CourseFacultyRequest.query.filter(CourseFacultyRequest.course_id.in_(course_ids)).delete(synchronize_session=False)
 
-    # 3. Delete Course records in this class
-    Course.query.filter_by(class_id=class_id).delete(synchronize_session=False)
+        # 3. Delete Course records in this class
+        Course.query.filter_by(class_id=class_id).delete(synchronize_session=False)
 
-    # 4. Delete CCRequests for this class
-    CCRequest.query.filter_by(class_id=class_id).delete(synchronize_session=False)
+        # 4. Delete CCRequests for this class
+        CCRequest.query.filter_by(class_id=class_id).delete(synchronize_session=False)
 
-    # 5. Delete Holidays for this class
-    Holiday.query.filter_by(class_id=class_id).delete(synchronize_session=False)
+        # 5. Delete TimetableConfig for this class
+        TimetableConfig.query.filter_by(class_id=class_id).delete(synchronize_session=False)
 
-    # 6. Delete TimetableConfig for this class
-    TimetableConfig.query.filter_by(class_id=class_id).delete(synchronize_session=False)
-
-    # 7. Delete Class record
-    db.session.delete(class_obj)
-    db.session.commit()
-    return jsonify({"message": "Class deleted successfully!"})
+        # 6. Delete Class record
+        db.session.delete(class_obj)
+        db.session.commit()
+        return jsonify({"message": "Class deleted successfully!"})
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error in delete_class: {e}")
+        return jsonify({"error": str(e)}), 500
 
 @app.route("/delete_course", methods=["POST"])
 def delete_course():

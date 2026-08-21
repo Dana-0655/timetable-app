@@ -88,10 +88,11 @@ class _WeeklyMatrixGridWidgetState extends State<WeeklyMatrixGridWidget> {
   void didUpdateWidget(WeeklyMatrixGridWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.entries != null) {
-      if (mounted) setState(() {
-        _entries = widget.entries!;
-        _isLoading = false;
-      });
+      if (mounted)
+        setState(() {
+          _entries = widget.entries!;
+          _isLoading = false;
+        });
     }
   }
 
@@ -176,7 +177,10 @@ class _WeeklyMatrixGridWidgetState extends State<WeeklyMatrixGridWidget> {
 
   void _confirmMarkFacultyDayLeave(String dayCode) {
     final isoDate = DateHelpers.isoForDayCode(dayCode, weekOffset: _weekOffset);
-    final dayLabel = DateHelpers.labelForDayCode(dayCode, weekOffset: _weekOffset);
+    final dayLabel = DateHelpers.labelForDayCode(
+      dayCode,
+      weekOffset: _weekOffset,
+    );
 
     final dayEntriesCount = _entries
         .where((e) => e['day_of_week'] == dayCode)
@@ -413,9 +417,14 @@ class _WeeklyMatrixGridWidgetState extends State<WeeklyMatrixGridWidget> {
               // Action 2: Mark Faculty Absent (CC Permission)
               if (!isOpenLeave && facultyId != null)
                 ListTile(
-                  leading: const Icon(Icons.person_off_rounded, color: Colors.redAccent),
+                  leading: const Icon(
+                    Icons.person_off_rounded,
+                    color: Colors.redAccent,
+                  ),
                   title: Text('Mark $facultyName Absent'),
-                  subtitle: Text('Mark leave for $isoDate ($day Period $periodNo)'),
+                  subtitle: Text(
+                    'Mark leave for $isoDate ($day Period $periodNo)',
+                  ),
                   onTap: () async {
                     Navigator.pop(ctx);
                     _confirmCCMarkAbsent(entry, day, periodNo, isoDate);
@@ -426,7 +435,9 @@ class _WeeklyMatrixGridWidgetState extends State<WeeklyMatrixGridWidget> {
                 const ListTile(
                   leading: Icon(Icons.info_outline, color: Colors.orange),
                   title: Text('Already Marked Absent'),
-                  subtitle: Text('This slot is currently open for substitution.'),
+                  subtitle: Text(
+                    'This slot is currently open for substitution.',
+                  ),
                 ),
             ],
           ),
@@ -457,7 +468,10 @@ class _WeeklyMatrixGridWidgetState extends State<WeeklyMatrixGridWidget> {
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Mark Absent', style: TextStyle(color: Colors.white)),
+            child: const Text(
+              'Mark Absent',
+              style: TextStyle(color: Colors.white),
+            ),
           ),
         ],
       ),
@@ -509,23 +523,13 @@ class _WeeklyMatrixGridWidgetState extends State<WeeklyMatrixGridWidget> {
   // =====================================================================
 
   bool get _isAdmin => widget.userRole == 'admin';
-  bool get _isFacultyOrCC =>
-      widget.userRole == 'faculty' || widget.userRole == 'cc';
-
-  bool get _teachesInThisTimetable {
-    if (widget.currentFacultyId <= 0) return false;
-    return _entries.any((e) => e['faculty_id'] == widget.currentFacultyId);
-  }
 
   bool get _canUseSwapMode {
-    if (!widget.canEdit) return false;
-    if (_isAdmin) return true;
-    if (_isFacultyOrCC) return _teachesInThisTimetable;
-    return false;
+    if (widget.userRole == 'student') return false;
+    return true;
   }
 
-  bool _isSwappableEntry(dynamic entry) {
-    if (entry == null) return false;
+  bool _isSwappableEntry(Map<String, dynamic> entry) {
     if (entry['entry_type'] == 'break') return false;
     if (entry['course_name'] == null) return false;
     if (entry['faculty_id'] == null) return false;
@@ -533,10 +537,11 @@ class _WeeklyMatrixGridWidgetState extends State<WeeklyMatrixGridWidget> {
   }
 
   void _toggleSwapMode() {
-    if (mounted) setState(() {
-      _swapModeOn = !_swapModeOn;
-      _swapSourceEntry = null;
-    });
+    if (mounted)
+      setState(() {
+        _swapModeOn = !_swapModeOn;
+        _swapSourceEntry = null;
+      });
   }
 
   void _handleSwapTap(dynamic entry) {
@@ -548,8 +553,10 @@ class _WeeklyMatrixGridWidgetState extends State<WeeklyMatrixGridWidget> {
     }
     final entryMap = Map<String, dynamic>.from(entry as Map);
 
-    if (_isFacultyOrCC && _swapSourceEntry == null) {
-      if (entryMap['faculty_id'] != widget.currentFacultyId) {
+    // Regular faculty can only start a swap from their own period.
+    if (widget.userRole == 'faculty' && _swapSourceEntry == null) {
+      if (entryMap['faculty_id']?.toString() !=
+          widget.currentFacultyId.toString()) {
         _showSwapSnack('You can only start a swap from your own period.');
         return;
       }
@@ -565,7 +572,10 @@ class _WeeklyMatrixGridWidgetState extends State<WeeklyMatrixGridWidget> {
       return;
     }
 
-    if (_isFacultyOrCC && entryMap['faculty_id'] == widget.currentFacultyId) {
+    // All roles: target must be from a different faculty than the source.
+    final sourceFacultyId = _swapSourceEntry!['faculty_id']?.toString();
+    final targetFacultyId = entryMap['faculty_id']?.toString();
+    if (targetFacultyId == sourceFacultyId) {
       _showSwapSnack(
         'Pick a period taught by a different faculty to swap with.',
       );
@@ -720,10 +730,11 @@ class _WeeklyMatrixGridWidgetState extends State<WeeklyMatrixGridWidget> {
       _showSwapSnack('Network error — could not send swap request.');
     } finally {
       if (mounted) {
-        if (mounted) setState(() {
-          _swapSubmitting = false;
-          _swapSourceEntry = null;
-        });
+        if (mounted)
+          setState(() {
+            _swapSubmitting = false;
+            _swapSourceEntry = null;
+          });
       }
     }
   }
@@ -761,7 +772,9 @@ class _WeeklyMatrixGridWidgetState extends State<WeeklyMatrixGridWidget> {
                   ? Icons.screen_lock_landscape_rounded
                   : Icons.screen_rotation_rounded,
               size: 15,
-              color: _isMobileHorizontal ? Colors.white : const Color(0xFF334155),
+              color: _isMobileHorizontal
+                  ? Colors.white
+                  : const Color(0xFF334155),
             ),
             const SizedBox(width: 5),
             Text(
@@ -769,7 +782,9 @@ class _WeeklyMatrixGridWidgetState extends State<WeeklyMatrixGridWidget> {
               style: TextStyle(
                 fontSize: 11.5,
                 fontWeight: FontWeight.bold,
-                color: _isMobileHorizontal ? Colors.white : const Color(0xFF334155),
+                color: _isMobileHorizontal
+                    ? Colors.white
+                    : const Color(0xFF334155),
               ),
             ),
           ],
@@ -958,9 +973,7 @@ class _WeeklyMatrixGridWidgetState extends State<WeeklyMatrixGridWidget> {
           TableRow(
             decoration: const BoxDecoration(
               color: Color(0xFF1E293B),
-              borderRadius: BorderRadius.vertical(
-                top: Radius.circular(7),
-              ),
+              borderRadius: BorderRadius.vertical(top: Radius.circular(7)),
             ),
             children: [
               Container(
@@ -1053,530 +1066,540 @@ class _WeeklyMatrixGridWidgetState extends State<WeeklyMatrixGridWidget> {
                       day,
                       weekOffset: _weekOffset,
                     );
-                    final isCustomHoliday = _holidays.containsKey(
-                      isoDate,
-                    );
+                    final isCustomHoliday = _holidays.containsKey(isoDate);
                     final isHoliday = isCustomHoliday || day == 'SUN';
 
                     return Container(
                       height: cellHeight,
                       padding: const EdgeInsets.all(4),
-                                alignment: Alignment.center,
-                                color: isHoliday
-                                    ? Colors.orange.shade50
-                                    : Colors.indigo.shade50.withValues(
-                                        alpha: 0.4,
-                                      ),
-                                child: Stack(
-                                  children: [
-                                    Center(
-                                      child: Column(
-                                        mainAxisAlignment:
-                                            MainAxisAlignment.center,
-                                        children: [
-                                          Text(
-                                            day,
-                                            style: TextStyle(
-                                              fontWeight: FontWeight.bold,
-                                              fontSize: 13,
-                                              color: isHoliday
-                                                  ? Colors.orange.shade900
-                                                  : const Color(0xFF1E293B),
-                                            ),
-                                          ),
-                                          const SizedBox(height: 2),
-                                          Text(
-                                            DateHelpers.labelForDayCode(
-                                              day,
-                                              weekOffset: _weekOffset,
-                                            ),
-                                            style: TextStyle(
-                                              fontSize: 10,
-                                              color: isHoliday
-                                                  ? Colors.orange.shade700
-                                                  : Colors.indigo.shade400,
-                                            ),
-                                          ),
-                                          if (isHoliday) ...[
-                                            const SizedBox(height: 2),
-                                            Text(
-                                              'HOLIDAY',
-                                              style: TextStyle(
-                                                fontSize: 8,
-                                                fontWeight: FontWeight.bold,
-                                                color: Colors.orange.shade800,
-                                                letterSpacing: 0.5,
-                                              ),
-                                            ),
-                                          ],
-                                        ],
-                                      ),
-                                    ),
-                                    if (widget.userRole == 'faculty_my_schedule' && day != 'SUN')
-                                       Positioned(
-                                         left: 2,
-                                         bottom: 2,
-                                         child: InkWell(
-                                           onTap: () => _confirmMarkFacultyDayLeave(day),
-                                           borderRadius: BorderRadius.circular(12),
-                                           child: Padding(
-                                             padding: const EdgeInsets.all(2.0),
-                                             child: Tooltip(
-                                               message: 'Mark Full Day Absent ($day)',
-                                               child: Icon(
-                                                 Icons.beach_access_rounded,
-                                                 size: 18,
-                                                 color: Colors.orange.shade800,
-                                               ),
-                                             ),
-                                           ),
-                                         ),
-                                       )
-                                     else if (_canToggleHoliday && day != 'SUN')
-                                      Positioned(
-                                        left: 2,
-                                        bottom: 2,
-                                        child: InkWell(
-                                          onTap: () => _toggleHoliday(day),
-                                          borderRadius: BorderRadius.circular(
-                                            12,
-                                          ),
-                                          child: Padding(
-                                            padding: const EdgeInsets.all(2.0),
-                                            child: Tooltip(
-                                              message: isCustomHoliday
-                                                  ? 'Unmark Holiday'
-                                                  : 'Mark as Holiday',
-                                              child: Icon(
-                                                isCustomHoliday
-                                                    ? Icons.beach_access_rounded
-                                                    : Icons
-                                                          .beach_access_outlined,
-                                                size: 16,
-                                                color: isCustomHoliday
-                                                    ? Colors.orange.shade700
-                                                    : Colors.indigo.shade400,
-                                              ),
-                                            ),
-                                          ),
-                                        ),
-                                      )
-                                    else if (isHoliday)
-                                      Positioned(
-                                        left: 2,
-                                        bottom: 2,
-                                        child: Padding(
-                                          padding: const EdgeInsets.all(2.0),
-                                          child: Icon(
-                                            Icons.beach_access_rounded,
-                                            size: 16,
-                                            color: Colors.orange.shade700,
-                                          ),
-                                        ),
-                                      ),
-                                    if (widget.canEdit)
-                                      Positioned(
-                                        right: 2,
-                                        bottom: 2,
-                                        child: InkWell(
-                                          onTap: () {
-                                            Navigator.push(
-                                              context,
-                                              MaterialPageRoute(
-                                                builder: (context) =>
-                                                    ScheduleBuilderScreen(
-                                                      classId: widget.classId,
-                                                      className:
-                                                          widget.className,
-                                                      dayOfWeek: day,
-                                                    ),
-                                              ),
-                                            ).then((_) {
-                                              _fetchTimetable();
-                                              widget.onTimetableChanged?.call();
-                                            });
-                                          },
-                                          borderRadius: BorderRadius.circular(
-                                            12,
-                                          ),
-                                          child: Padding(
-                                            padding: const EdgeInsets.all(2.0),
-                                            child: Tooltip(
-                                              message:
-                                                  'Reschedule Periods & Breaks ($day)',
-                                              child: const Icon(
-                                                Icons.edit_calendar_rounded,
-                                                size: 16,
-                                                color: Color(0xFF475569),
-                                              ),
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                  ],
-                                ),
-                              );
-                            },
-                          ),
-
-                          for (int p = 1; p <= maxPeriod; p++)
-                            Builder(
-                              builder: (context) {
-                                final isoDate = DateHelpers.isoForDayCode(
-                                  day,
-                                  weekOffset: _weekOffset,
-                                );
-                                final isHoliday =
-                                    _holidays.containsKey(isoDate) ||
-                                    day == 'SUN';
-                                final entry = _entries.firstWhere(
-                                  (e) =>
-                                      e['day_of_week'] == day &&
-                                      e['period_no'] == p,
-                                  orElse: () => null,
-                                );
-
-                                if (entry == null) {
-                                  return InkWell(
-                                    onTap: () => _handleCellTap(null, day, p),
-                                    child: Container(
-                                      height: cellHeight,
-                                      color: isHoliday
-                                          ? Colors.orange.shade50
-                                          : Colors.grey.shade50,
-                                      alignment: Alignment.center,
-                                      child: isHoliday
-                                          ? Column(
-                                              mainAxisAlignment:
-                                                  MainAxisAlignment.center,
-                                              children: [
-                                                Icon(
-                                                  Icons.beach_access_rounded,
-                                                  size: 16,
-                                                  color: Colors.orange.shade400,
-                                                ),
-                                                const SizedBox(height: 4),
-                                                Text(
-                                                  widget.canEdit
-                                                      ? 'Holiday\n(Tap for special class)'
-                                                      : 'Holiday',
-                                                  textAlign: TextAlign.center,
-                                                  style: TextStyle(
-                                                    fontSize: 10,
-                                                    color:
-                                                        Colors.orange.shade700,
-                                                    fontWeight: FontWeight.w600,
-                                                  ),
-                                                ),
-                                              ],
-                                            )
-                                          : Text(
-                                              widget.canEdit
-                                                  ? 'Free Period\n(Tap to add)'
-                                                  : 'Free Period',
-                                              textAlign: TextAlign.center,
-                                              style: TextStyle(
-                                                fontSize: 11,
-                                                color: Colors.grey.shade500,
-                                              ),
-                                            ),
-                                    ),
-                                  );
-                                }
-
-                                final isBreak = entry['entry_type'] == 'break';
-                                final isOpenLeave =
-                                    entry['status_color'] == 'open_leave';
-                                final isSwapped =
-                                    entry['status_color'] == 'swapped';
-                                final isMySubject =
-                                    widget.currentFacultyId > 0 &&
-                                    entry['faculty_id'] ==
-                                        widget.currentFacultyId;
-
-                                // NEW: highlight if this cell is the selected swap source
-                                final isSelectedAsSource =
-                                    _swapModeOn &&
-                                    _swapSourceEntry != null &&
-                                    _swapSourceEntry!['entry_id'] ==
-                                        entry['entry_id'];
-
-                                final title = isBreak
-                                    ? (entry['label'] ?? 'BREAK')
-                                    : (entry['course_name'] ?? 'Free Period');
-                                final faculty = widget.userRole ==
-                                        'faculty_my_schedule'
-                                    ? (entry['class_name'] ?? '')
-                                    : (entry['faculty_name'] ?? '');
-                                final room = entry['room_number'] ?? '';
-
-                                return InkWell(
-                                  // NEW: route tap through swap handler when swap mode is on,
-                                  // otherwise call the original _handleCellTap unchanged.
-                                  onTap: () {
-                                    if (_swapModeOn && !isBreak) {
-                                      _handleSwapTap(entry);
-                                    } else {
-                                      _handleCellTap(entry, day, p);
-                                    }
-                                  },
-                                  child: Container(
-                                    height: cellHeight,
-                                    padding: const EdgeInsets.all(6),
-                                    decoration: BoxDecoration(
-                                      color: _getCellColor(entry, isMySubject),
-                                      border: Border.all(
-                                        // NEW: blue highlight border when selected as swap source
-                                        color: isSelectedAsSource
-                                            ? const Color(0xFF0EA5E9)
-                                            : _getBorderColor(
-                                                entry,
-                                                isMySubject,
-                                              ),
-                                        width: isSelectedAsSource
-                                            ? 2.5
-                                            : (isMySubject ||
-                                                      isOpenLeave ||
-                                                      isSwapped
-                                                  ? 1.8
-                                                  : 0.8),
-                                      ),
-                                      borderRadius: BorderRadius.circular(4),
-                                    ),
-                                    child: Stack(
-                                      children: [
-                                        Column(
-                                          mainAxisAlignment:
-                                              MainAxisAlignment.center,
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.center,
-                                          children: [
-                                            Text(
-                                              title.toUpperCase(),
-                                              maxLines: 2,
-                                              overflow: TextOverflow.ellipsis,
-                                              textAlign: TextAlign.center,
-                                              style: TextStyle(
-                                                fontWeight: FontWeight.bold,
-                                                fontSize: 11,
-                                                color: isBreak
-                                                    ? Colors.amber.shade900
-                                                    : isOpenLeave
-                                                    ? Colors.red.shade900
-                                                    : (isMySubject
-                                                          ? Colors
-                                                                .green
-                                                                .shade900
-                                                          : Colors.black87),
-                                              ),
-                                            ),
-                                            if (isOpenLeave) ...[
-                                              const SizedBox(height: 2),
-                                              Text(
-                                                'ABSENT',
-                                                style: TextStyle(
-                                                  fontSize: 9,
-                                                  fontWeight: FontWeight.bold,
-                                                  color: Colors.red.shade700,
-                                                ),
-                                              ),
-                                            ] else if (entry['status_color'] == 'confirmed_cover') ...[
-                                              const SizedBox(height: 2),
-                                              Text(
-                                                widget.userRole == 'faculty_my_schedule'
-                                                    ? '${entry['class_name'] ?? ''}\nSubstitute - ${entry['faculty_name'] ?? ''}'
-                                                    : 'Substitute - ${entry['faculty_name'] ?? ''}',
-                                                maxLines: 2,
-                                                overflow: TextOverflow.ellipsis,
-                                                textAlign: TextAlign.center,
-                                                style: TextStyle(
-                                                  fontSize: 9,
-                                                  fontWeight: FontWeight.bold,
-                                                  color: Colors.green.shade900,
-                                                ),
-                                              ),
-                                            ] else if (faculty.isNotEmpty &&
-                                                !isBreak) ...[
-                                              const SizedBox(height: 2),
-                                              Text(
-                                                faculty,
-                                                maxLines: 1,
-                                                overflow: TextOverflow.ellipsis,
-                                                textAlign: TextAlign.center,
-                                                style: const TextStyle(
-                                                  fontSize: 10,
-                                                  color: Colors.black54,
-                                                ),
-                                              ),
-                                            ],
-                                            if (room.isNotEmpty &&
-                                                !isBreak) ...[
-                                              const SizedBox(height: 3),
-                                              Row(
-                                                mainAxisAlignment:
-                                                    MainAxisAlignment.center,
-                                                children: [
-                                                  const Icon(
-                                                    Icons.meeting_room,
-                                                    size: 10,
-                                                    color: Colors.grey,
-                                                  ),
-                                                  const SizedBox(width: 2),
-                                                  Text(
-                                                    'Room: $room',
-                                                    style: TextStyle(
-                                                      fontSize: 9,
-                                                      color:
-                                                          Colors.grey.shade700,
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                            ],
-                                          ],
-                                        ),
-                                        if (isSwapped)
-                                          Positioned(
-                                            top: 0,
-                                            right: 0,
-                                            child: Container(
-                                              padding: const EdgeInsets.all(2),
-                                              decoration: BoxDecoration(
-                                                color: entry['swap_id'] != null
-                                                    ? swapBorderColor(
-                                                        widget.swapColorIndex,
-                                                        entry['swap_id'] as int,
-                                                      )
-                                                    : Colors.blue.shade700,
-                                                shape: BoxShape.circle,
-                                              ),
-                                              child: const Icon(
-                                                Icons.swap_horiz,
-                                                size: 10,
-                                                color: Colors.white,
-                                              ),
-                                            ),
-                                          ),
-                                        if (entry['status_color'] == 'confirmed_cover')
-                                          Positioned(
-                                            top: 0,
-                                            right: 0,
-                                            child: Container(
-                                              padding: const EdgeInsets.all(2),
-                                              decoration: BoxDecoration(
-                                                color: Colors.green.shade700,
-                                                shape: BoxShape.circle,
-                                              ),
-                                              child: const Icon(
-                                                Icons.assignment_ind_rounded,
-                                                size: 10,
-                                                color: Colors.white,
-                                              ),
-                                            ),
-                                          ),
-                                        // NEW: "SELECTED" badge on the chosen source cell
-                                        if (isSelectedAsSource)
-                                          Positioned(
-                                            top: 0,
-                                            left: 0,
-                                            child: Container(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                    horizontal: 4,
-                                                    vertical: 1,
-                                                  ),
-                                              decoration: BoxDecoration(
-                                                color: const Color(0xFF0EA5E9),
-                                                borderRadius:
-                                                    BorderRadius.circular(4),
-                                              ),
-                                              child: const Text(
-                                                'SEL',
-                                                style: TextStyle(
-                                                  color: Colors.white,
-                                                  fontSize: 8,
-                                                  fontWeight: FontWeight.bold,
-                                                ),
-                                              ),
-                                            ),
-                                          ),
-                                      ],
-                                    ),
-                                  ),
-                                );
-                              },
-                            ),
-                        ],
-                      ),
-
-                    // ---- Navigation Row: Below Sunday (Next / Future Week) ----
-                    TableRow(
-                      decoration: const BoxDecoration(color: Color(0xFFF1F5F9)),
-                      children: [
-                        InkWell(
-                          onTap: () {
-                            if (mounted) setState(() => _weekOffset++);
-                            _fetchHolidays();
-                          },
-                          child: Container(
-                            height: 38,
-                            alignment: Alignment.center,
-                            child: const Row(
+                      alignment: Alignment.center,
+                      color: isHoliday
+                          ? Colors.orange.shade50
+                          : Colors.indigo.shade50.withValues(alpha: 0.4),
+                      child: Stack(
+                        children: [
+                          Center(
+                            child: Column(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                Icon(
-                                  Icons.arrow_downward_rounded,
-                                  size: 14,
-                                  color: Color(0xFF0F172A),
-                                ),
-                                SizedBox(width: 4),
                                 Text(
-                                  'Next Week',
+                                  day,
                                   style: TextStyle(
-                                    fontSize: 10,
                                     fontWeight: FontWeight.bold,
-                                    color: Color(0xFF0F172A),
+                                    fontSize: 13,
+                                    color: isHoliday
+                                        ? Colors.orange.shade900
+                                        : const Color(0xFF1E293B),
                                   ),
                                 ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  DateHelpers.labelForDayCode(
+                                    day,
+                                    weekOffset: _weekOffset,
+                                  ),
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    color: isHoliday
+                                        ? Colors.orange.shade700
+                                        : Colors.indigo.shade400,
+                                  ),
+                                ),
+                                if (isHoliday) ...[
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    'HOLIDAY',
+                                    style: TextStyle(
+                                      fontSize: 8,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.orange.shade800,
+                                      letterSpacing: 0.5,
+                                    ),
+                                  ),
+                                ],
                               ],
                             ),
                           ),
-                        ),
-                        for (int p = 1; p <= maxPeriod; p++)
-                          Container(
-                            height: 38,
-                            alignment: Alignment.center,
-                            child: p == 1 && _weekOffset != 0
-                                ? TextButton.icon(
-                                    style: TextButton.styleFrom(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 8,
-                                        vertical: 2,
-                                      ),
+                          if (widget.userRole == 'faculty_my_schedule' &&
+                              day != 'SUN')
+                            Positioned(
+                              left: 2,
+                              bottom: 2,
+                              child: InkWell(
+                                onTap: () => _confirmMarkFacultyDayLeave(day),
+                                borderRadius: BorderRadius.circular(12),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(2.0),
+                                  child: Tooltip(
+                                    message: 'Mark Full Day Absent ($day)',
+                                    child: Icon(
+                                      Icons.beach_access_rounded,
+                                      size: 18,
+                                      color: Colors.orange.shade800,
                                     ),
-                                    icon: const Icon(
-                                      Icons.today_rounded,
-                                      size: 14,
+                                  ),
+                                ),
+                              ),
+                            )
+                          else if (_canToggleHoliday && day != 'SUN')
+                            Positioned(
+                              left: 2,
+                              bottom: 2,
+                              child: InkWell(
+                                onTap: () => _toggleHoliday(day),
+                                borderRadius: BorderRadius.circular(12),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(2.0),
+                                  child: Tooltip(
+                                    message: isCustomHoliday
+                                        ? 'Unmark Holiday'
+                                        : 'Mark as Holiday',
+                                    child: Icon(
+                                      isCustomHoliday
+                                          ? Icons.beach_access_rounded
+                                          : Icons.beach_access_outlined,
+                                      size: 16,
+                                      color: isCustomHoliday
+                                          ? Colors.orange.shade700
+                                          : Colors.indigo.shade400,
                                     ),
-                                    label: const Text(
-                                      'Back to Current Week',
-                                      style: TextStyle(
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.bold,
-                                      ),
+                                  ),
+                                ),
+                              ),
+                            )
+                          else if (isHoliday)
+                            Positioned(
+                              left: 2,
+                              bottom: 2,
+                              child: Padding(
+                                padding: const EdgeInsets.all(2.0),
+                                child: Icon(
+                                  Icons.beach_access_rounded,
+                                  size: 16,
+                                  color: Colors.orange.shade700,
+                                ),
+                              ),
+                            ),
+                          if (widget.canEdit)
+                            Positioned(
+                              right: 2,
+                              bottom: 2,
+                              child: InkWell(
+                                onTap: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) =>
+                                          ScheduleBuilderScreen(
+                                            classId: widget.classId,
+                                            className: widget.className,
+                                            dayOfWeek: day,
+                                          ),
                                     ),
-                                    onPressed: () {
-                                      if (mounted) setState(() => _weekOffset = 0);
-                                      _fetchHolidays();
-                                    },
-                                  )
-                                : null,
-                          ),
-                      ],
-                    ),
-                  ],
+                                  ).then((_) {
+                                    _fetchTimetable();
+                                    widget.onTimetableChanged?.call();
+                                  });
+                                },
+                                borderRadius: BorderRadius.circular(12),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(2.0),
+                                  child: Tooltip(
+                                    message:
+                                        'Reschedule Periods & Breaks ($day)',
+                                    child: const Icon(
+                                      Icons.edit_calendar_rounded,
+                                      size: 16,
+                                      color: Color(0xFF475569),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    );
+                  },
                 ),
-              );
+
+                for (int p = 1; p <= maxPeriod; p++)
+                  Builder(
+                    builder: (context) {
+                      final isoDate = DateHelpers.isoForDayCode(
+                        day,
+                        weekOffset: _weekOffset,
+                      );
+                      final isHoliday =
+                          _holidays.containsKey(isoDate) || day == 'SUN';
+                      final entry = _entries.firstWhere(
+                        (e) => e['day_of_week'] == day && e['period_no'] == p,
+                        orElse: () => null,
+                      );
+
+                      if (entry == null) {
+                        return InkWell(
+                          onTap: () => _handleCellTap(null, day, p),
+                          child: Container(
+                            height: cellHeight,
+                            color: isHoliday
+                                ? Colors.orange.shade50
+                                : Colors.grey.shade50,
+                            alignment: Alignment.center,
+                            child: isHoliday
+                                ? Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(
+                                        Icons.beach_access_rounded,
+                                        size: 16,
+                                        color: Colors.orange.shade400,
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        widget.canEdit
+                                            ? 'Holiday\n(Tap for special class)'
+                                            : 'Holiday',
+                                        textAlign: TextAlign.center,
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          color: Colors.orange.shade700,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ],
+                                  )
+                                : Text(
+                                    widget.canEdit
+                                        ? 'Free Period\n(Tap to add)'
+                                        : 'Free Period',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: Colors.grey.shade500,
+                                    ),
+                                  ),
+                          ),
+                        );
+                      }
+
+                      final isBreak = entry['entry_type'] == 'break';
+                      final isOpenLeave = entry['status_color'] == 'open_leave';
+                      final isSwapped = entry['status_color'] == 'swapped';
+                      final isMySubject =
+                          widget.currentFacultyId > 0 &&
+                          entry['faculty_id']?.toString() ==
+                              widget.currentFacultyId.toString();
+
+                      // NEW: highlight if this cell is the selected swap source
+                      final isSelectedAsSource =
+                          _swapModeOn &&
+                          _swapSourceEntry != null &&
+                          _swapSourceEntry!['entry_id'] == entry['entry_id'];
+
+                      bool isBlurredForSwap = false;
+                      if (_swapModeOn) {
+                        if (isBreak || !_isSwappableEntry(entry)) {
+                          isBlurredForSwap = true;
+                        } else if (widget.userRole == 'faculty') {
+                          if (_swapSourceEntry == null) {
+                            // First tap in class timetable: Only enable faculty's own hours
+                            if (entry['faculty_id']?.toString() !=
+                                widget.currentFacultyId.toString()) {
+                              isBlurredForSwap = true;
+                            }
+                          } else {
+                            // Second tap in class timetable: Enable all hours EXCEPT faculty's own hours
+                            if (entry['faculty_id']?.toString() ==
+                                    widget.currentFacultyId.toString() &&
+                                !isSelectedAsSource) {
+                              isBlurredForSwap = true;
+                            }
+                          }
+                        } else if (widget.userRole == 'faculty_my_schedule' ||
+                            widget.userRole == 'cc' ||
+                            widget.userRole == 'admin') {
+                          if (_swapSourceEntry == null) {
+                            // 1st tap: all swappable entries are enabled (cc/admin can pick any slot)
+                            isBlurredForSwap = false;
+                          } else {
+                            // 2nd tap: disable entries from the same faculty as the source,
+                            // enable only entries from a different faculty
+                            final sourceFacultyId =
+                                _swapSourceEntry!['faculty_id']?.toString();
+                            final cellFacultyId =
+                                entry['faculty_id']?.toString();
+                            if (cellFacultyId == sourceFacultyId &&
+                                !isSelectedAsSource) {
+                              isBlurredForSwap = true;
+                            }
+                          }
+                        }
+                      }
+
+                      final title = isBreak
+                          ? (entry['label'] ?? 'BREAK')
+                          : (entry['course_name'] ?? 'Free Period');
+                      final faculty = widget.userRole == 'faculty_my_schedule'
+                          ? (entry['class_name'] ?? '')
+                          : (entry['faculty_name'] ?? '');
+                      final room = entry['room_number'] ?? '';
+
+                      Widget cellContent = Container(
+                        height: cellHeight,
+                        padding: const EdgeInsets.all(6),
+                        decoration: BoxDecoration(
+                          color: _getCellColor(entry, isMySubject),
+                          border: Border.all(
+                            // NEW: blue highlight border when selected as swap source
+                            color: isSelectedAsSource
+                                ? const Color(0xFF0EA5E9)
+                                : _getBorderColor(entry, isMySubject),
+                            width: isSelectedAsSource
+                                ? 2.5
+                                : (isMySubject || isOpenLeave || isSwapped
+                                      ? 1.8
+                                      : 0.8),
+                          ),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Stack(
+                          children: [
+                            Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              crossAxisAlignment: CrossAxisAlignment.center,
+                              children: [
+                                Text(
+                                  title.toUpperCase(),
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 11,
+                                    color: isBreak
+                                        ? Colors.amber.shade900
+                                        : isOpenLeave
+                                        ? Colors.red.shade900
+                                        : (isMySubject
+                                              ? Colors.green.shade900
+                                              : Colors.black87),
+                                  ),
+                                ),
+                                if (isOpenLeave) ...[
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    'ABSENT',
+                                    style: TextStyle(
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.red.shade700,
+                                    ),
+                                  ),
+                                ] else if (entry['status_color'] ==
+                                    'confirmed_cover') ...[
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    widget.userRole == 'faculty_my_schedule'
+                                        ? '${entry['class_name'] ?? ''}\nSubstitute - ${entry['faculty_name'] ?? ''}'
+                                        : 'Substitute - ${entry['faculty_name'] ?? ''}',
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.green.shade900,
+                                    ),
+                                  ),
+                                ] else if (faculty.isNotEmpty && !isBreak) ...[
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    faculty,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    textAlign: TextAlign.center,
+                                    style: const TextStyle(
+                                      fontSize: 10,
+                                      color: Colors.black54,
+                                    ),
+                                  ),
+                                ],
+                                if (room.isNotEmpty && !isBreak) ...[
+                                  const SizedBox(height: 3),
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      const Icon(
+                                        Icons.meeting_room,
+                                        size: 10,
+                                        color: Colors.grey,
+                                      ),
+                                      const SizedBox(width: 2),
+                                      Text(
+                                        'Room: $room',
+                                        style: TextStyle(
+                                          fontSize: 9,
+                                          color: Colors.grey.shade700,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ],
+                            ),
+                            if (isSwapped)
+                              Positioned(
+                                top: 0,
+                                right: 0,
+                                child: Container(
+                                  padding: const EdgeInsets.all(2),
+                                  decoration: BoxDecoration(
+                                    color: entry['swap_id'] != null
+                                        ? swapBorderColor(
+                                            widget.swapColorIndex,
+                                            entry['swap_id'] as int,
+                                          )
+                                        : Colors.blue.shade700,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: const Icon(
+                                    Icons.swap_horiz,
+                                    size: 10,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ),
+                            if (entry['status_color'] == 'confirmed_cover')
+                              Positioned(
+                                top: 0,
+                                right: 0,
+                                child: Container(
+                                  padding: const EdgeInsets.all(2),
+                                  decoration: BoxDecoration(
+                                    color: Colors.green.shade700,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: const Icon(
+                                    Icons.assignment_ind_rounded,
+                                    size: 10,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ),
+                            // NEW: "SELECTED" badge on the chosen source cell
+                            if (isSelectedAsSource)
+                              Positioned(
+                                top: 0,
+                                left: 0,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 4,
+                                    vertical: 1,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF0EA5E9),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: const Text(
+                                    'SEL',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 8,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      );
+
+                      if (isBlurredForSwap) {
+                        cellContent = Opacity(opacity: 0.3, child: cellContent);
+                      }
+
+                      return InkWell(
+                        onTap: isBlurredForSwap
+                            ? null
+                            : () {
+                                if (_swapModeOn && !isBreak) {
+                                  _handleSwapTap(entry);
+                                } else {
+                                  _handleCellTap(entry, day, p);
+                                }
+                              },
+                        child: cellContent,
+                      );
+                    },
+                  ),
+              ],
+            ),
+
+          // ---- Navigation Row: Below Sunday (Next / Future Week) ----
+          TableRow(
+            decoration: const BoxDecoration(color: Color(0xFFF1F5F9)),
+            children: [
+              InkWell(
+                onTap: () {
+                  if (mounted) setState(() => _weekOffset++);
+                  _fetchHolidays();
+                },
+                child: Container(
+                  height: 38,
+                  alignment: Alignment.center,
+                  child: const Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.arrow_downward_rounded,
+                        size: 14,
+                        color: Color(0xFF0F172A),
+                      ),
+                      SizedBox(width: 4),
+                      Text(
+                        'Next Week',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF0F172A),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              for (int p = 1; p <= maxPeriod; p++)
+                Container(
+                  height: 38,
+                  alignment: Alignment.center,
+                  child: p == 1 && _weekOffset != 0
+                      ? TextButton.icon(
+                          style: TextButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 2,
+                            ),
+                          ),
+                          icon: const Icon(Icons.today_rounded, size: 14),
+                          label: const Text(
+                            'Back to Current Week',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          onPressed: () {
+                            if (mounted) setState(() => _weekOffset = 0);
+                            _fetchHolidays();
+                          },
+                        )
+                      : null,
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,

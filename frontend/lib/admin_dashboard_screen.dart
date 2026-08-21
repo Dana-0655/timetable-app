@@ -103,6 +103,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         if (mounted) setState(() {
           _hasActiveSemester = activeSem != null;
           _activeSemesterId = activeSem?['semester_id'];
+          if (_activeSemesterId != null) {
+            _localSemesterId = _activeSemesterId;
+          }
         });
       }
     } catch (e) {
@@ -434,9 +437,31 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       if (response.statusCode == 200) {
         _fetchClasses();
         _fetchMyFacultyRoles();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Class deleted successfully.')),
+          );
+        }
+      } else {
+        final data = jsonDecode(response.body);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(data['error'] ?? 'Failed to delete class.'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
       }
     } catch (e) {
-      // Silently fail for now
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not connect to server.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
@@ -880,6 +905,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                 ),
               ).then((success) {
                 if (success == true) {
+                  if (mounted) setState(() => _localSemesterId = null);
                   _fetchActiveSemester().then((_) => _fetchClasses());
                 } else {
                   _fetchClasses();

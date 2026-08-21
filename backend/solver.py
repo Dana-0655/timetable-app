@@ -1,4 +1,5 @@
 import pandas as pd
+# pyrefly: ignore [missing-import]
 from ortools.sat.python import cp_model
 from collections import defaultdict
 

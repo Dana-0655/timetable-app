@@ -265,6 +265,9 @@ class _FacultySwapResponsesScreenState
         appBar: AppBar(
           title: const Text('Swap Requests'),
           bottom: const TabBar(
+            labelColor: Colors.white,
+            unselectedLabelColor: Colors.white70,
+            indicatorColor: Colors.white,
             tabs: [
               Tab(text: 'Requests to You'),
               Tab(text: 'Sent by You'),

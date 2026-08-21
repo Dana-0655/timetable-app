@@ -171,6 +171,7 @@ class _ScheduleBuilderScreenState extends State<ScheduleBuilderScreen> {
           child: ReorderableListView.builder(
             padding: const EdgeInsets.all(16),
             itemCount: _slotOrder.length,
+            // ignore: deprecated_member_use
             onReorder: _reorder,
             itemBuilder: (context, index) {
               final type = _slotOrder[index];

@@ -58,13 +58,16 @@ class _VercelBarsTimetableWidgetState extends State<VercelBarsTimetableWidget> {
 
   Future<void> _fetchHolidays() async {
     if (widget.classId == 0) return;
-    final url = Uri.parse('$_kApiBase/holidays_for_class_week/${widget.classId}');
+    final url = Uri.parse(
+      '$_kApiBase/holidays_for_class_week/${widget.classId}',
+    );
     try {
       final response = await http.get(url);
       if (response.statusCode == 200 && mounted) {
-        if (mounted) setState(() {
-          _holidays = Map<String, dynamic>.from(jsonDecode(response.body));
-        });
+        if (mounted)
+          setState(() {
+            _holidays = Map<String, dynamic>.from(jsonDecode(response.body));
+          });
       }
     } catch (_) {}
   }
@@ -115,8 +118,10 @@ class _VercelBarsTimetableWidgetState extends State<VercelBarsTimetableWidget> {
   }
 
   Widget _buildHolidayToggle({bool isMobile = false}) {
-    final currentIso =
-        DateHelpers.isoForDayCode(_selectedDay, weekOffset: _weekOffset);
+    final currentIso = DateHelpers.isoForDayCode(
+      _selectedDay,
+      weekOffset: _weekOffset,
+    );
     final isCustomHoliday = _holidays.containsKey(currentIso);
 
     final buttonChild = isMobile
@@ -190,8 +195,9 @@ class _VercelBarsTimetableWidgetState extends State<VercelBarsTimetableWidget> {
                         ? Icons.beach_access_rounded
                         : Icons.beach_access_outlined,
                     size: 16,
-                    color:
-                        isCustomHoliday ? Colors.white : const Color(0xFF475569),
+                    color: isCustomHoliday
+                        ? Colors.white
+                        : const Color(0xFF475569),
                   ),
                 const SizedBox(width: 6),
                 Text(
@@ -199,8 +205,9 @@ class _VercelBarsTimetableWidgetState extends State<VercelBarsTimetableWidget> {
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.bold,
-                    color:
-                        isCustomHoliday ? Colors.white : const Color(0xFF475569),
+                    color: isCustomHoliday
+                        ? Colors.white
+                        : const Color(0xFF475569),
                   ),
                 ),
               ],
@@ -276,7 +283,10 @@ class _VercelBarsTimetableWidgetState extends State<VercelBarsTimetableWidget> {
   void _confirmMarkFacultyDayLeave(String dayCode) {
     if (widget.currentFacultyId == null) return;
     final isoDate = DateHelpers.isoForDayCode(dayCode, weekOffset: _weekOffset);
-    final dayLabel = DateHelpers.labelForDayCode(dayCode, weekOffset: _weekOffset);
+    final dayLabel = DateHelpers.labelForDayCode(
+      dayCode,
+      weekOffset: _weekOffset,
+    );
 
     final dayEntriesCount = widget.entries
         .where((e) => e['day_of_week'] == dayCode)
@@ -344,7 +354,9 @@ class _VercelBarsTimetableWidgetState extends State<VercelBarsTimetableWidget> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Network error marking full day leave.')),
+          const SnackBar(
+            content: Text('Network error marking full day leave.'),
+          ),
         );
       }
     }
@@ -450,8 +462,9 @@ class _VercelBarsTimetableWidgetState extends State<VercelBarsTimetableWidget> {
                   : Icon(
                       Icons.swap_horiz_rounded,
                       size: 18,
-                      color:
-                          _swapModeOn ? Colors.white : const Color(0xFF475569),
+                      color: _swapModeOn
+                          ? Colors.white
+                          : const Color(0xFF475569),
                     ),
             ),
           )
@@ -484,8 +497,7 @@ class _VercelBarsTimetableWidgetState extends State<VercelBarsTimetableWidget> {
                   Icon(
                     Icons.swap_horiz_rounded,
                     size: 16,
-                    color:
-                        _swapModeOn ? Colors.white : const Color(0xFF475569),
+                    color: _swapModeOn ? Colors.white : const Color(0xFF475569),
                   ),
                 const SizedBox(width: 6),
                 Text(
@@ -493,8 +505,7 @@ class _VercelBarsTimetableWidgetState extends State<VercelBarsTimetableWidget> {
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.bold,
-                    color:
-                        _swapModeOn ? Colors.white : const Color(0xFF475569),
+                    color: _swapModeOn ? Colors.white : const Color(0xFF475569),
                   ),
                 ),
               ],
@@ -554,20 +565,10 @@ class _VercelBarsTimetableWidgetState extends State<VercelBarsTimetableWidget> {
   // ---- Swap mode eligibility ----
 
   bool get _isAdmin => widget.userRole == 'admin';
-  bool get _isFacultyOrCC =>
-      widget.userRole == 'faculty' || widget.userRole == 'cc';
-
-  bool get _teachesInThisTimetable {
-    if (widget.currentFacultyId == null) return false;
-    return widget.entries.any(
-      (e) => e['faculty_id'] == widget.currentFacultyId,
-    );
-  }
 
   bool get _canUseSwapMode {
-    if (_isAdmin) return true;
-    if (_isFacultyOrCC) return _teachesInThisTimetable;
-    return false;
+    if (widget.userRole == 'student') return false;
+    return true;
   }
 
   bool _isSwappableEntry(Map<String, dynamic> entry) {
@@ -578,10 +579,11 @@ class _VercelBarsTimetableWidgetState extends State<VercelBarsTimetableWidget> {
   }
 
   void _toggleSwapMode() {
-    if (mounted) setState(() {
-      _swapModeOn = !_swapModeOn;
-      _swapSourceEntry = null;
-    });
+    if (mounted)
+      setState(() {
+        _swapModeOn = !_swapModeOn;
+        _swapSourceEntry = null;
+      });
   }
 
   void _handleSwapTap(Map<String, dynamic> entry) {
@@ -590,9 +592,10 @@ class _VercelBarsTimetableWidgetState extends State<VercelBarsTimetableWidget> {
       return;
     }
 
-    // Faculty/CC can only pick their OWN periods as the source.
-    if (_isFacultyOrCC && _swapSourceEntry == null) {
-      if (entry['faculty_id'] != widget.currentFacultyId) {
+    // Regular faculty can only start a swap from their own period.
+    if (widget.userRole == 'faculty' && _swapSourceEntry == null) {
+      if (entry['faculty_id']?.toString() !=
+          widget.currentFacultyId.toString()) {
         _showSnack('You can only start a swap from your own period.');
         return;
       }
@@ -609,8 +612,9 @@ class _VercelBarsTimetableWidgetState extends State<VercelBarsTimetableWidget> {
       return;
     }
 
-    // Faculty/CC can't target one of their own other periods.
-    if (_isFacultyOrCC && entry['faculty_id'] == widget.currentFacultyId) {
+    // Regular faculty must target a period taught by a different faculty.
+    if (widget.userRole == 'faculty' &&
+        entry['faculty_id']?.toString() == widget.currentFacultyId.toString()) {
       _showSnack('Pick a period taught by a different faculty to swap with.');
       return;
     }
@@ -763,10 +767,11 @@ class _VercelBarsTimetableWidgetState extends State<VercelBarsTimetableWidget> {
       _showSnack('Network error — could not send swap request.');
     } finally {
       if (mounted) {
-        if (mounted) setState(() {
-          _swapSubmitting = false;
-          _swapSourceEntry = null;
-        });
+        if (mounted)
+          setState(() {
+            _swapSubmitting = false;
+            _swapSourceEntry = null;
+          });
       }
     }
   }
@@ -950,8 +955,9 @@ class _VercelBarsTimetableWidgetState extends State<VercelBarsTimetableWidget> {
                               decoration: BoxDecoration(
                                 color: const Color(0xFFF1F5F9),
                                 shape: BoxShape.circle,
-                                border:
-                                    Border.all(color: const Color(0xFFE2E8F0)),
+                                border: Border.all(
+                                  color: const Color(0xFFE2E8F0),
+                                ),
                               ),
                               child: const Icon(
                                 Icons.arrow_back_ios_new_rounded,
@@ -976,9 +982,8 @@ class _VercelBarsTimetableWidgetState extends State<VercelBarsTimetableWidget> {
                         return Padding(
                           padding: EdgeInsets.only(right: isMobile ? 5 : 8),
                           child: InkWell(
-                            onTap: () => setState(
-                              () => _selectedDay = day['short']!,
-                            ),
+                            onTap: () =>
+                                setState(() => _selectedDay = day['short']!),
                             borderRadius: BorderRadius.circular(16),
                             child: Container(
                               padding: EdgeInsets.symmetric(
@@ -1061,8 +1066,9 @@ class _VercelBarsTimetableWidgetState extends State<VercelBarsTimetableWidget> {
                               decoration: BoxDecoration(
                                 color: const Color(0xFFF1F5F9),
                                 shape: BoxShape.circle,
-                                border:
-                                    Border.all(color: const Color(0xFFE2E8F0)),
+                                border: Border.all(
+                                  color: const Color(0xFFE2E8F0),
+                                ),
                               ),
                               child: const Icon(
                                 Icons.arrow_forward_ios_rounded,
@@ -1105,7 +1111,7 @@ class _VercelBarsTimetableWidgetState extends State<VercelBarsTimetableWidget> {
                 SizedBox(width: isMobile ? 5 : 8),
                 _buildSwapModeToggle(isMobile: isMobile),
               ],
-              if (_isAdmin || _isFacultyOrCC) ...[
+              if (_canToggleHoliday) ...[
                 SizedBox(width: isMobile ? 5 : 8),
                 _buildRescheduleToggle(isMobile: isMobile),
               ],
@@ -1152,7 +1158,10 @@ class _VercelBarsTimetableWidgetState extends State<VercelBarsTimetableWidget> {
 
           Builder(
             builder: (context) {
-              final selectedIso = DateHelpers.isoForDayCode(_selectedDay, weekOffset: _weekOffset);
+              final selectedIso = DateHelpers.isoForDayCode(
+                _selectedDay,
+                weekOffset: _weekOffset,
+              );
               final isCurrentHoliday =
                   _holidays.containsKey(selectedIso) || _selectedDay == 'SUN';
 
@@ -1186,15 +1195,15 @@ class _VercelBarsTimetableWidgetState extends State<VercelBarsTimetableWidget> {
                       Text(
                         isCurrentHoliday
                             ? (_selectedDay == 'SUN'
-                                ? 'Sunday is usually a holiday.'
-                                : 'This day is marked as a holiday.')
+                                  ? 'Sunday is usually a holiday.'
+                                  : 'This day is marked as a holiday.')
                             : 'No schedule entries set for this day.',
                         style: const TextStyle(
                           color: Color(0xFF64748B),
                           fontWeight: FontWeight.w500,
                         ),
                       ),
-                      if (isCurrentHoliday && (_isAdmin || _isFacultyOrCC)) ...[
+                      if (isCurrentHoliday && _canToggleHoliday) ...[
                         const SizedBox(height: 12),
                         OutlinedButton.icon(
                           icon: const Icon(Icons.add_chart, size: 16),
@@ -1202,7 +1211,9 @@ class _VercelBarsTimetableWidgetState extends State<VercelBarsTimetableWidget> {
                           onPressed: () => widget.onCellTap?.call(null),
                         ),
                       ],
-                      if (dayEntries.isEmpty && !isCurrentHoliday && (_isAdmin || _isFacultyOrCC)) ...[
+                      if (dayEntries.isEmpty &&
+                          !isCurrentHoliday &&
+                          _canToggleHoliday) ...[
                         const SizedBox(height: 12),
                         ElevatedButton.icon(
                           style: ElevatedButton.styleFrom(
@@ -1216,7 +1227,10 @@ class _VercelBarsTimetableWidgetState extends State<VercelBarsTimetableWidget> {
                               borderRadius: BorderRadius.circular(8),
                             ),
                           ),
-                          icon: const Icon(Icons.edit_calendar_rounded, size: 16),
+                          icon: const Icon(
+                            Icons.edit_calendar_rounded,
+                            size: 16,
+                          ),
                           label: Text('Make Schedule for $_selectedDay'),
                           onPressed: () {
                             Navigator.push(
@@ -1245,168 +1259,308 @@ class _VercelBarsTimetableWidgetState extends State<VercelBarsTimetableWidget> {
                 physics: const NeverScrollableScrollPhysics(),
                 itemCount: dayEntries.length,
                 itemBuilder: (context, index) {
-                final entry = dayEntries[index];
-                final isBreak = entry['entry_type'] == 'break';
-                final courseName =
-                    entry['course_name'] ??
-                    (isBreak ? (entry['label'] ?? 'BREAK') : 'Unassigned Slot');
-                final facultyName = widget.userRole == 'faculty_my_schedule'
-                    ? (entry['class_name'] ?? 'Class')
-                    : (entry['faculty_name'] ?? 'No Faculty Assigned');
-                final statusColor = entry['status_color'] ?? 'normal';
-                final swapId = entry['swap_id'] as int?;
-                final startTime = entry['start_time'] ?? '00:00';
-                final endTime = entry['end_time'] ?? '00:00';
-                final periodNo = entry['period_no'] ?? (index + 1);
-                final isSelectedAsSource =
-                    _swapModeOn &&
-                    _swapSourceEntry != null &&
-                    _swapSourceEntry!['entry_id'] == entry['entry_id'];
+                  final entry = dayEntries[index];
+                  final isBreak = entry['entry_type'] == 'break';
+                  final courseName =
+                      entry['course_name'] ??
+                      (isBreak
+                          ? (entry['label'] ?? 'BREAK')
+                          : 'Unassigned Slot');
+                  final facultyName = widget.userRole == 'faculty_my_schedule'
+                      ? (entry['class_name'] ?? 'Class')
+                      : (entry['faculty_name'] ?? 'No Faculty Assigned');
+                  final statusColor = entry['status_color'] ?? 'normal';
+                  final swapId = entry['swap_id'] as int?;
+                  final startTime = entry['start_time'] ?? '00:00';
+                  final endTime = entry['end_time'] ?? '00:00';
+                  final periodNo = entry['period_no'] ?? (index + 1);
+                  final isSelectedAsSource =
+                      _swapModeOn &&
+                      _swapSourceEntry != null &&
+                      _swapSourceEntry!['entry_id'] == entry['entry_id'];
 
-                if (isBreak) {
-                  return Container(
-                    margin: const EdgeInsets.only(bottom: 12),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 12,
-                    ),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF8FAFC),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: const Color(0xFFE2E8F0)),
-                    ),
-                    child: Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFE2E8F0),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: const Icon(
-                            Icons.coffee_rounded,
-                            size: 18,
-                            color: Color(0xFF475569),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                courseName.toUpperCase(),
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 13,
-                                  color: Color(0xFF475569),
-                                  letterSpacing: 0.5,
-                                ),
-                              ),
-                              if (startTime != '00:00')
-                                Text(
-                                  '$startTime - $endTime',
-                                  style: const TextStyle(
-                                    fontSize: 11,
-                                    color: Color(0xFF94A3B8),
-                                  ),
-                                ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-                }
-
-                return InkWell(
-                  onTap: () {
-                    if (_swapModeOn) {
-                      _handleSwapTap(Map<String, dynamic>.from(entry));
-                    } else {
-                      widget.onCellTap?.call(entry);
+                  bool isBlurredForSwap = false;
+                  if (_swapModeOn) {
+                    if (isBreak || !_isSwappableEntry(entry)) {
+                      isBlurredForSwap = true;
+                    } else if (widget.userRole == 'faculty') {
+                      if (_swapSourceEntry == null) {
+                        // First tap in class timetable: Only enable faculty's own hours
+                        if (entry['faculty_id']?.toString() !=
+                            widget.currentFacultyId.toString()) {
+                          isBlurredForSwap = true;
+                        }
+                      } else {
+                        // Second tap in class timetable: Enable all hours EXCEPT faculty's own hours
+                        if (entry['faculty_id']?.toString() ==
+                                widget.currentFacultyId.toString() &&
+                            !isSelectedAsSource) {
+                          isBlurredForSwap = true;
+                        }
+                      }
+                    } else if (widget.userRole == 'faculty_my_schedule' ||
+                        widget.userRole == 'cc' ||
+                        widget.userRole == 'admin') {
+                      if (_swapSourceEntry != null && isSelectedAsSource) {
+                        isBlurredForSwap = false;
+                      }
                     }
-                  },
-                  borderRadius: BorderRadius.circular(12),
-                  child: Container(
-                    margin: const EdgeInsets.only(bottom: 12),
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: _getStatusBgColor(statusColor, swapId: swapId),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: isSelectedAsSource
-                            ? const Color(0xFF0EA5E9)
-                            : _getStatusBorderColor(
-                                statusColor,
-                                swapId: swapId,
-                              ),
-                        width: isSelectedAsSource ? 2.5 : 1.5,
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: isSelectedAsSource
-                              ? const Color(0xFF0EA5E9).withValues(alpha: 0.15)
-                              : Colors.black.withValues(alpha: 0.03),
-                          blurRadius: isSelectedAsSource ? 12 : 8,
-                          offset: const Offset(0, 3),
+                  }
+
+                  if (isBreak) {
+                    return Opacity(
+                      opacity: isBlurredForSwap ? 0.4 : 1.0,
+                      child: Container(
+                        margin: const EdgeInsets.only(bottom: 12),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 12,
                         ),
-                      ],
-                    ),
-                    child: Stack(
-                      children: [
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF8FAFC),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFFE2E8F0)),
+                        ),
+                        child: Row(
                           children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Row(
-                                  children: [
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 8,
-                                        vertical: 3,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: const Color(0xFF0F172A),
-                                        borderRadius: BorderRadius.circular(6),
-                                      ),
-                                      child: Text(
-                                        'PERIOD $periodNo',
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.bold,
-                                          letterSpacing: 0.5,
-                                        ),
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFE2E8F0),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: const Icon(
+                                Icons.coffee_rounded,
+                                size: 18,
+                                color: Color(0xFF475569),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    courseName.toUpperCase(),
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 13,
+                                      color: Color(0xFF475569),
+                                      letterSpacing: 0.5,
+                                    ),
+                                  ),
+                                  if (startTime != '00:00')
+                                    Text(
+                                      '$startTime - $endTime',
+                                      style: const TextStyle(
+                                        fontSize: 11,
+                                        color: Color(0xFF94A3B8),
                                       ),
                                     ),
-                                    if (startTime != '00:00') ...[
-                                      const SizedBox(width: 8),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  }
+
+                  return Opacity(
+                    opacity: isBlurredForSwap ? 0.4 : 1.0,
+                    child: InkWell(
+                      onTap: isBlurredForSwap
+                          ? null
+                          : () {
+                              if (_swapModeOn) {
+                                _handleSwapTap(
+                                  Map<String, dynamic>.from(entry),
+                                );
+                              } else {
+                                widget.onCellTap?.call(entry);
+                              }
+                            },
+                      borderRadius: BorderRadius.circular(12),
+                      child: Container(
+                        margin: const EdgeInsets.only(bottom: 12),
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: _getStatusBgColor(statusColor, swapId: swapId),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: isSelectedAsSource
+                                ? const Color(0xFF0EA5E9)
+                                : _getStatusBorderColor(
+                                    statusColor,
+                                    swapId: swapId,
+                                  ),
+                            width: isSelectedAsSource ? 2.5 : 1.5,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: isSelectedAsSource
+                                  ? const Color(
+                                      0xFF0EA5E9,
+                                    ).withValues(alpha: 0.15)
+                                  : Colors.black.withValues(alpha: 0.03),
+                              blurRadius: isSelectedAsSource ? 12 : 8,
+                              offset: const Offset(0, 3),
+                            ),
+                          ],
+                        ),
+                        child: Stack(
+                          children: [
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 8,
+                                            vertical: 3,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: const Color(0xFF0F172A),
+                                            borderRadius: BorderRadius.circular(
+                                              6,
+                                            ),
+                                          ),
+                                          child: Text(
+                                            'PERIOD $periodNo',
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 10,
+                                              fontWeight: FontWeight.bold,
+                                              letterSpacing: 0.5,
+                                            ),
+                                          ),
+                                        ),
+                                        if (startTime != '00:00') ...[
+                                          const SizedBox(width: 8),
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 8,
+                                              vertical: 3,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: const Color(0xFFF1F5F9),
+                                              borderRadius:
+                                                  BorderRadius.circular(6),
+                                            ),
+                                            child: Row(
+                                              children: [
+                                                const Icon(
+                                                  Icons.access_time_rounded,
+                                                  size: 12,
+                                                  color: Color(0xFF64748B),
+                                                ),
+                                                const SizedBox(width: 4),
+                                                Text(
+                                                  '$startTime - $endTime',
+                                                  style: const TextStyle(
+                                                    fontSize: 11,
+                                                    fontWeight: FontWeight.w600,
+                                                    color: Color(0xFF334155),
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ],
+                                      ],
+                                    ),
+                                    if (isSelectedAsSource)
                                       Container(
                                         padding: const EdgeInsets.symmetric(
                                           horizontal: 8,
-                                          vertical: 3,
+                                          vertical: 4,
                                         ),
                                         decoration: BoxDecoration(
-                                          color: const Color(0xFFF1F5F9),
-                                          borderRadius: BorderRadius.circular(6),
+                                          color: const Color(0xFF0EA5E9),
+                                          borderRadius: BorderRadius.circular(
+                                            6,
+                                          ),
+                                        ),
+                                        child: const Text(
+                                          'SELECTED',
+                                          style: TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      )
+                                    else
+                                      _buildStatusBadge(
+                                        statusColor,
+                                        facultyName,
+                                        swapId: swapId,
+                                      ),
+                                  ],
+                                ),
+                                const SizedBox(height: 12),
+
+                                Text(
+                                  courseName,
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF0F172A),
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+
+                                Row(
+                                  children: [
+                                    const Icon(
+                                      Icons.person_outline_rounded,
+                                      size: 16,
+                                      color: Color(0xFF64748B),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Expanded(
+                                      child: Text(
+                                        statusColor == 'confirmed_cover'
+                                            ? 'Substitute - $facultyName'
+                                            : facultyName,
+                                        style: const TextStyle(
+                                          fontSize: 13,
+                                          color: Color(0xFF475569),
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                    ),
+                                    if (widget.roomNo.isNotEmpty) ...[
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                          vertical: 4,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFEDE9FE),
+                                          borderRadius: BorderRadius.circular(
+                                            6,
+                                          ),
                                         ),
                                         child: Row(
                                           children: [
                                             const Icon(
-                                              Icons.access_time_rounded,
+                                              Icons.meeting_room_rounded,
                                               size: 12,
-                                              color: Color(0xFF64748B),
+                                              color: Color(0xFF6D28D9),
                                             ),
                                             const SizedBox(width: 4),
                                             Text(
-                                              '$startTime - $endTime',
+                                              'Room ${widget.roomNo}',
                                               style: const TextStyle(
                                                 fontSize: 11,
-                                                fontWeight: FontWeight.w600,
-                                                color: Color(0xFF334155),
+                                                fontWeight: FontWeight.bold,
+                                                color: Color(0xFF6D28D9),
                                               ),
                                             ),
                                           ],
@@ -1415,117 +1569,27 @@ class _VercelBarsTimetableWidgetState extends State<VercelBarsTimetableWidget> {
                                     ],
                                   ],
                                 ),
-                                if (isSelectedAsSource)
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                      vertical: 4,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFF0EA5E9),
-                                      borderRadius: BorderRadius.circular(6),
-                                    ),
-                                    child: const Text(
-                                      'SELECTED',
-                                      style: TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                  )
-                                else
-                                  _buildStatusBadge(
-                                    statusColor,
-                                    facultyName,
-                                    swapId: swapId,
-                                  ),
                               ],
                             ),
-                            const SizedBox(height: 12),
-
-                            Text(
-                              courseName,
-                              style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                                color: Color(0xFF0F172A),
+                            if (statusColor == 'confirmed_cover')
+                              Positioned(
+                                top: 0,
+                                right: 0,
+                                child: Icon(
+                                  Icons.assignment_ind_rounded,
+                                  size: 18,
+                                  color: Colors.green.shade700,
+                                ),
                               ),
-                            ),
-                            const SizedBox(height: 8),
-
-                            Row(
-                              children: [
-                                const Icon(
-                                  Icons.person_outline_rounded,
-                                  size: 16,
-                                  color: Color(0xFF64748B),
-                                ),
-                                const SizedBox(width: 6),
-                                Expanded(
-                                  child: Text(
-                                    statusColor == 'confirmed_cover'
-                                        ? 'Substitute - $facultyName'
-                                        : facultyName,
-                                    style: const TextStyle(
-                                      fontSize: 13,
-                                      color: Color(0xFF475569),
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  ),
-                                ),
-                                if (widget.roomNo.isNotEmpty) ...[
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                      vertical: 4,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFFEDE9FE),
-                                      borderRadius: BorderRadius.circular(6),
-                                    ),
-                                    child: Row(
-                                      children: [
-                                        const Icon(
-                                          Icons.meeting_room_rounded,
-                                          size: 12,
-                                          color: Color(0xFF6D28D9),
-                                        ),
-                                        const SizedBox(width: 4),
-                                        Text(
-                                          'Room ${widget.roomNo}',
-                                          style: const TextStyle(
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.bold,
-                                            color: Color(0xFF6D28D9),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ],
-                              ],
-                            ),
                           ],
                         ),
-                        if (statusColor == 'confirmed_cover')
-                          Positioned(
-                            top: 0,
-                            right: 0,
-                            child: Icon(
-                              Icons.assignment_ind_rounded,
-                              size: 18,
-                              color: Colors.green.shade700,
-                            ),
-                          ),
-                      ],
+                      ),
                     ),
-                  ),
-                );
-              },
-            );
-          },
-        ),
+                  );
+                },
+              );
+            },
+          ),
         ],
       ),
     );
