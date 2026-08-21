@@ -7,6 +7,7 @@ import 'class_info_dialog.dart';
 import 'swap_color_utils.dart';
 import 'session_manager.dart';
 import 'student_department_screen.dart';
+import 'role_selection_screen.dart';
 import 'main.dart';
 
 class StudentTimetableScreen extends StatefulWidget {
@@ -32,6 +33,7 @@ class _StudentTimetableScreenState extends State<StudentTimetableScreen> {
   bool _isLoading = true;
   bool _bannerDismissed = false;
   bool _isPinned = false;
+  bool _isOfflineMode = false;
 
   @override
   void initState() {
@@ -56,7 +58,9 @@ class _StudentTimetableScreenState extends State<StudentTimetableScreen> {
         setState(() => _isPinned = false);
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Timetable unpinned. You can browse and pin any class.'),
+            content: Text(
+              'Timetable unpinned. You can browse and pin any class.',
+            ),
             behavior: SnackBarBehavior.floating,
           ),
         );
@@ -65,7 +69,9 @@ class _StudentTimetableScreenState extends State<StudentTimetableScreen> {
       await SessionManager.saveDefaultClass(
         widget.classId,
         widget.className,
-        collegeId: _classInfo['college_id'] is int ? _classInfo['college_id'] : null,
+        collegeId: _classInfo['college_id'] is int
+            ? _classInfo['college_id']
+            : null,
       );
       if (mounted) {
         setState(() => _isPinned = true);
@@ -83,7 +89,21 @@ class _StudentTimetableScreenState extends State<StudentTimetableScreen> {
   }
 
   Future<void> _fetchClassData() async {
-    setState(() => _isLoading = true);
+    //OFFLINE VIEW
+    // 1. Instantly load from local device cache if available (Offline Support)
+    final cachedData = await SessionManager.getCachedTimetable(widget.classId);
+    if (cachedData != null && mounted) {
+      final cachedEntries = cachedData['entries'] as List<dynamic>;
+      final cachedInfo = cachedData['classInfo'] as Map<String, dynamic>;
+      setState(() {
+        _entries = cachedEntries;
+        _classInfo = cachedInfo;
+        _swapColorIndex = buildSwapColorIndex(_entries);
+        _isLoading = false;
+      });
+    } else {
+      setState(() => _isLoading = true);
+    }
 
     final infoUrl = Uri.parse(
       'http://127.0.0.1:5000/class_info/${widget.classId}',
@@ -95,32 +115,67 @@ class _StudentTimetableScreenState extends State<StudentTimetableScreen> {
       'http://127.0.0.1:5000/class_updates/${widget.classId}',
     );
 
+    bool networkSuccess = false;
+
     try {
-      final infoRes = await http.get(infoUrl);
+      final infoRes = await http
+          .get(infoUrl)
+          .timeout(const Duration(seconds: 4));
       if (infoRes.statusCode == 200) {
         _classInfo = jsonDecode(infoRes.body);
       }
     } catch (_) {}
 
     try {
-      final ttRes = await http.get(ttUrl);
+      final ttRes = await http.get(ttUrl).timeout(const Duration(seconds: 4));
       if (ttRes.statusCode == 200) {
         _entries = jsonDecode(ttRes.body);
         _swapColorIndex = buildSwapColorIndex(_entries);
+        networkSuccess = true;
       }
     } catch (_) {}
 
     try {
-      final updatesRes = await http.get(updatesUrl);
+      final updatesRes = await http
+          .get(updatesUrl)
+          .timeout(const Duration(seconds: 4));
       if (updatesRes.statusCode == 200) {
         _updates = jsonDecode(updatesRes.body);
       }
     } catch (_) {}
 
+    if (networkSuccess) {
+      // 2. Persist fresh backend data to cache for future offline access
+      await SessionManager.saveCachedTimetable(
+        widget.classId,
+        _entries,
+        _classInfo,
+      );
+    }
+
     if (mounted) {
+      final wasOffline = !networkSuccess && cachedData != null;
       setState(() {
         _isLoading = false;
+        _isOfflineMode = wasOffline;
       });
+
+      if (wasOffline) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Row(
+              children: [
+                Icon(Icons.wifi_off_rounded, color: Colors.white, size: 18),
+                SizedBox(width: 8),
+                Text('Offline Mode: Displaying saved timetable.'),
+              ],
+            ),
+            backgroundColor: Color(0xFFE65100),
+            behavior: SnackBarBehavior.floating,
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
     }
   }
 
@@ -520,6 +575,29 @@ class _StudentTimetableScreenState extends State<StudentTimetableScreen> {
     );
   }
 
+  Widget _buildOfflineBanner() {
+    return Container(
+      width: double.infinity,
+      color: const Color(0xFFE65100),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      child: const Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.wifi_off_rounded, color: Colors.white, size: 16),
+          SizedBox(width: 8),
+          Text(
+            'Offline Mode — Displaying cached timetable',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final dept = _classInfo['department'] ?? '';
@@ -593,22 +671,24 @@ class _StudentTimetableScreenState extends State<StudentTimetableScreen> {
             onPressed: () async {
               final defaultClass = await SessionManager.getDefaultClass();
               final collegeInfo = await SessionManager.getSavedCollegeCode();
-              final targetCollegeId = defaultClass?['collegeId'] ?? collegeInfo?['collegeId'];
+              final targetCollegeId =
+                  defaultClass?['collegeId'] ?? collegeInfo?['collegeId'];
 
               if (context.mounted) {
                 if (targetCollegeId != null) {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (context) => StudentDepartmentScreen(
-                        collegeId: targetCollegeId,
-                      ),
+                      builder: (_) =>
+                          StudentDepartmentScreen(collegeId: targetCollegeId),
                     ),
                   );
                 } else {
                   Navigator.pushAndRemoveUntil(
                     context,
-                    MaterialPageRoute(builder: (context) => const WelcomeScreen()),
+                    MaterialPageRoute(
+                      builder: (_) => const RoleSelectionScreen(),
+                    ),
                     (route) => false,
                   );
                 }
@@ -631,6 +711,8 @@ class _StudentTimetableScreenState extends State<StudentTimetableScreen> {
           ? const Center(child: CircularProgressIndicator())
           : Column(
               children: [
+                if (_isOfflineMode) _buildOfflineBanner(),
+
                 // Live Alert Banner (if updates exist)
                 _buildLiveAlertBanner(),
 
@@ -679,7 +761,9 @@ class _StudentTimetableScreenState extends State<StudentTimetableScreen> {
                                 color: Colors.amberAccent,
                               ),
                               label: const Text('Pinned Default'),
-                              backgroundColor: Colors.amber.shade900.withValues(alpha: 0.3),
+                              backgroundColor: Colors.amber.shade900.withValues(
+                                alpha: 0.3,
+                              ),
                               labelStyle: const TextStyle(
                                 color: Colors.amberAccent,
                                 fontSize: 12,

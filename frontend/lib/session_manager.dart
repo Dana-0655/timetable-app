@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class SessionManager {
@@ -161,6 +162,35 @@ class SessionManager {
   static Future<bool> getGridOrientationPreference() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getBool('mobile_grid_horizontal_pref') ?? false;
+  }
+
+  // ---- Offline Timetable Caching ----
+  static Future<void> saveCachedTimetable(
+    int classId,
+    List<dynamic> entries,
+    Map<String, dynamic> classInfo,
+  ) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('cached_tt_entries_$classId', jsonEncode(entries));
+    await prefs.setString('cached_tt_info_$classId', jsonEncode(classInfo));
+    await prefs.setString('cached_tt_time_$classId', DateTime.now().toIso8601String());
+  }
+
+  static Future<Map<String, dynamic>?> getCachedTimetable(int classId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final entriesRaw = prefs.getString('cached_tt_entries_$classId');
+    final infoRaw = prefs.getString('cached_tt_info_$classId');
+    final timeRaw = prefs.getString('cached_tt_time_$classId');
+    if (entriesRaw == null) return null;
+    try {
+      return {
+        'entries': jsonDecode(entriesRaw) as List<dynamic>,
+        'classInfo': infoRaw != null ? jsonDecode(infoRaw) as Map<String, dynamic> : <String, dynamic>{},
+        'cachedAt': timeRaw,
+      };
+    } catch (_) {
+      return null;
+    }
   }
 }
 
