@@ -200,8 +200,10 @@ class _NotificationBellState extends State<NotificationBell> {
         return Icons.event_available;
       case 'swap_request':
       case 'swap_response':
+      case 'swap_update':
         return Icons.swap_horiz;
       case 'leave_reminder':
+      case 'leave_notice':
         return Icons.alarm;
       case 'timetable_generated':
         return Icons.auto_awesome;
@@ -224,9 +226,11 @@ class _NotificationBellState extends State<NotificationBell> {
       case 'substitute_invite':
       case 'cover_declined':
       case 'leave_reminder':
+      case 'leave_notice':
         return Colors.orange.shade800;
       case 'swap_request':
       case 'swap_response':
+      case 'swap_update':
         return Colors.teal.shade700;
       case 'timetable_generated':
         return Colors.purple.shade700;
@@ -272,18 +276,19 @@ class _NotificationBellState extends State<NotificationBell> {
                   return type == 'course_invite' || type == 'course_response';
                 }
                 if (selectedFilter == 'swaps') {
-                  return type == 'swap_request' || type == 'swap_response';
+                  return type == 'swap_request' || type == 'swap_response' || type == 'swap_update';
                 }
                 if (selectedFilter == 'leaves') {
                   return type == 'substitute_invite' ||
                       type == 'cover_confirmed' ||
                       type == 'cover_declined' ||
                       type == 'cover_request' ||
-                      type == 'leave_reminder';
+                      type == 'leave_reminder' ||
+                      type == 'leave_notice';
                 }
                 if (selectedFilter == 'system') {
                   return type == 'timetable_generated' ||
-                      (!['cc_invite', 'cc_response', 'course_invite', 'course_response', 'swap_request', 'swap_response', 'substitute_invite', 'cover_confirmed', 'cover_declined', 'cover_request', 'leave_reminder'].contains(type));
+                      (!['cc_invite', 'cc_response', 'course_invite', 'course_response', 'swap_request', 'swap_response', 'swap_update', 'substitute_invite', 'cover_confirmed', 'cover_declined', 'cover_request', 'leave_reminder', 'leave_notice'].contains(type));
                 }
                 return true; // 'all'
               }).toList();

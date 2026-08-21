@@ -5,15 +5,23 @@ import threading
 import io
 import pandas as pd
 from flask_cors import CORS
+# pyrefly: ignore [missing-import]
 from dotenv import load_dotenv
+# pyrefly: ignore [missing-import]
 from flask import Flask, request, jsonify, send_file
+# pyrefly: ignore [missing-import]
 from flask_sqlalchemy import SQLAlchemy
+# pyrefly: ignore [missing-import]
 from flask_bcrypt import Bcrypt
+# pyrefly: ignore [missing-import]
 from apscheduler.schedulers.background import BackgroundScheduler
 from datetime import datetime, timedelta
-from apscheduler.triggers.cron import CronTrigger
+# pyrefly: ignore [missing-import]
+from apscheduler.triggers.cron import CronTrigger  
+# pyrefly: ignore [missing-import]
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+# pyrefly: ignore [missing-import]
 from ortools.sat.python import cp_model
 from openpyxl.worksheet.datavalidation import DataValidation
 from solver import generate_timetable_with_ortools # Import your solver function
@@ -1685,6 +1693,14 @@ def mark_leave():
     entry.status_color = "open_leave"
     db.session.commit()
 
+    faculty = Faculty.query.get(data["faculty_id"])
+    if faculty and entry:
+        create_notification(
+            "class", entry.class_id,
+            f"Timetable change: {faculty.name} is on leave for {entry.day_of_week} Period {entry.period_no}.",
+            "leave_notice"
+        )
+
     return jsonify({"message": "Leave marked and slot highlighted!", "leave_id": new_leave.leave_id})
 
 @app.route("/cc_mark_leave", methods=["POST"])
@@ -1740,6 +1756,11 @@ def cc_mark_leave():
         create_notification(
             "faculty", target_faculty.faculty_id,
             f"Your Class Coordinator ({cc_name}) marked you absent for {entry.day_of_week} Period {entry.period_no} in {class_obj.year} - {class_obj.department} Sec {class_obj.section} on {leave_date}.",
+            "leave_notice"
+        )
+        create_notification(
+            "class", class_obj.class_id,
+            f"Timetable change: {target_faculty.name if target_faculty else 'Faculty'} is on leave for {entry.day_of_week} Period {entry.period_no}.",
             "leave_notice"
         )
 
@@ -1889,6 +1910,11 @@ def confirm_cover_request():
         f"{substitute.name} will cover your {entry.day_of_week} Period {entry.period_no}",
         "cover_confirmed"
     )
+    create_notification(
+        "class", entry.class_id,
+        f"Timetable change: {substitute.name} will substitute for {original_faculty.name} on {entry.day_of_week} Period {entry.period_no}",
+        "cover_confirmed"
+    )
 
     return jsonify({"message": "Cover request confirmed successfully!"})
 
@@ -1978,6 +2004,21 @@ def resolve_swap_request():
         requester_entry.course_id, target_entry.course_id = target_entry.course_id, requester_entry.course_id
         requester_entry.status_color = "swapped"
         target_entry.status_color = "swapped"
+        
+        target = Faculty.query.get(swap.target_faculty_id)
+        requester = Faculty.query.get(swap.requester_faculty_id)
+
+        # Notify affected classes
+        create_notification(
+            "class", requester_entry.class_id,
+            f"Timetable change: Your {requester_entry.day_of_week} Period {requester_entry.period_no} class is now handled by {target.name} due to a faculty swap.",
+            "swap_update"
+        )
+        create_notification(
+            "class", target_entry.class_id,
+            f"Timetable change: Your {target_entry.day_of_week} Period {target_entry.period_no} class is now handled by {requester.name} due to a faculty swap.",
+            "swap_update"
+        )
 
     db.session.commit()
 
@@ -2026,6 +2067,15 @@ def mark_day_leave():
         created_leaves.append(entry.entry_id)
 
     db.session.commit()
+
+    faculty = Faculty.query.get(faculty_id)
+    if faculty:
+        for entry in entries:
+            create_notification(
+                "class", entry.class_id,
+                f"Timetable change: {faculty.name} is on leave for {entry.day_of_week} Period {entry.period_no}.",
+                "leave_notice"
+            )
 
     return jsonify({
         "message": f"Leave marked for {len(created_leaves)} period(s)",
@@ -3010,6 +3060,11 @@ def resolve_substitute_invite():
             f"{class_obj.year} - {class_obj.department} - {class_obj.section}, "
             f"{entry.day_of_week} Period {entry.period_no}"
             f"{f' ({course.course_name})' if course else ''}.",
+            "cover_confirmed"
+        )
+        create_notification(
+            "class", entry.class_id,
+            f"Timetable change: {substitute.name} will substitute for {original_faculty.name} on {entry.day_of_week} Period {entry.period_no}",
             "cover_confirmed"
         )
         return jsonify({"message": "Invitation accepted successfully!"})

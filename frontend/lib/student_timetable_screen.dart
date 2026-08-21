@@ -8,6 +8,7 @@ import 'swap_color_utils.dart';
 import 'session_manager.dart';
 import 'student_department_screen.dart';
 import 'main.dart';
+import 'notification_bell.dart';
 
 class StudentTimetableScreen extends StatefulWidget {
   final int classId;
@@ -626,6 +627,10 @@ class _StudentTimetableScreenState extends State<StudentTimetableScreen> {
                 ? 'Pinned as Default (Tap to Unpin)'
                 : 'Pin this Timetable (Opens automatically on launch)',
             onPressed: _togglePin,
+          ),
+          NotificationBell(
+            recipientType: 'class',
+            recipientId: widget.classId,
           ),
           // Class Bulletin Notification Bell with active badge
           Stack(
