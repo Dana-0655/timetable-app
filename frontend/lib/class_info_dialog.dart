@@ -83,7 +83,7 @@ class _ClassInfoDialogContentState extends State<_ClassInfoDialogContent> {
   }
 
   Future<void> _saveRoomNumber() async {
-    setState(() => _isSaving = true);
+    if (mounted) setState(() => _isSaving = true);
     final url = Uri.parse('http://127.0.0.1:5000/update_class_room');
     try {
       final response = await http.post(
@@ -95,7 +95,7 @@ class _ClassInfoDialogContentState extends State<_ClassInfoDialogContent> {
         }),
       );
       if (response.statusCode == 200) {
-        setState(() {
+        if (mounted) setState(() {
           _data['room_number'] = _roomController.text.trim();
           _isEditingRoom = false;
         });
@@ -113,7 +113,7 @@ class _ClassInfoDialogContentState extends State<_ClassInfoDialogContent> {
         );
       }
     }
-    setState(() => _isSaving = false);
+    if (mounted) setState(() => _isSaving = false);
   }
 
   @override
@@ -174,7 +174,7 @@ class _ClassInfoDialogContentState extends State<_ClassInfoDialogContent> {
                       if (_isEditingRoom) {
                         _saveRoomNumber();
                       } else {
-                        setState(() => _isEditingRoom = true);
+                        if (mounted) setState(() => _isEditingRoom = true);
                       }
                     },
                   ),

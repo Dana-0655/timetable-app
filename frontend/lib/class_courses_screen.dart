@@ -211,18 +211,18 @@ class _ClassCoursesScreenState extends State<ClassCoursesScreen> {
 
   Future<void> _fetchTimetable() async {
     if (!mounted) return;
-    setState(() => _isLoading = true);
+    if (mounted) setState(() => _isLoading = true);
     final url = Uri.parse('http://127.0.0.1:5000/timetable/${widget.classId}');
     try {
       final response = await http.get(url);
       if (!mounted) return;
       if (response.statusCode == 200) {
-        setState(() {
+        if (mounted) setState(() {
           _entries = jsonDecode(response.body);
           _isLoading = false;
         });
       } else {
-        setState(() => _isLoading = false);
+        if (mounted) setState(() => _isLoading = false);
       }
     } catch (e) {
       if (mounted) setState(() => _isLoading = false);
@@ -256,7 +256,7 @@ class _ClassCoursesScreenState extends State<ClassCoursesScreen> {
                   ),
                   const SizedBox(height: 4),
                   Text('Name: ${faculty['name']}'),
-                  Text('Email: ${faculty['email']}'),
+                  Text('User ID: ${faculty['email']}'),
                   Text('Expertise: ${faculty['subject_expertise']}'),
                 ] else
                   const Text('No faculty assigned yet.'),

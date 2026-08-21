@@ -92,20 +92,20 @@ class _FillSlotScreenState extends State<FillSlotScreen> {
 
   Future<void> _save() async {
     if (_startTimeController.text.isEmpty || _endTimeController.text.isEmpty) {
-      setState(() => _errorMessage = 'Please set start and end time.');
+      if (mounted) setState(() => _errorMessage = 'Please set start and end time.');
       return;
     }
     if (widget.entryType == 'period' &&
         _courseNameController.text.trim().isEmpty) {
-      setState(() => _errorMessage = 'Please enter a course name.');
+      if (mounted) setState(() => _errorMessage = 'Please enter a course name.');
       return;
     }
     if (widget.entryType == 'break' && _labelController.text.trim().isEmpty) {
-      setState(() => _errorMessage = 'Please enter a break name.');
+      if (mounted) setState(() => _errorMessage = 'Please enter a break name.');
       return;
     }
 
-    setState(() {
+    if (mounted) setState(() {
       _isSaving = true;
       _errorMessage = null;
     });
@@ -143,13 +143,13 @@ class _FillSlotScreenState extends State<FillSlotScreen> {
       if (response.statusCode == 200) {
         if (mounted) Navigator.pop(context, true);
       } else {
-        setState(() => _errorMessage = 'Could not save. Try again.');
+        if (mounted) setState(() => _errorMessage = 'Could not save. Try again.');
       }
     } catch (e) {
-      setState(() => _errorMessage = 'Could not connect to server.');
+      if (mounted) setState(() => _errorMessage = 'Could not connect to server.');
     }
 
-    setState(() => _isSaving = false);
+    if (mounted) setState(() => _isSaving = false);
   }
 
   @override

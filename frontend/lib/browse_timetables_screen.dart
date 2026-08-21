@@ -46,7 +46,7 @@ class _BrowseTimetablesScreenState extends State<BrowseTimetablesScreen> {
 
   void _onSearchChanged() {
     final query = _searchController.text.trim().toLowerCase();
-    setState(() {
+    if (mounted) setState(() {
       _searchQuery = query;
       if (query.isEmpty) {
         _filteredClasses = List.from(_classes);
@@ -66,10 +66,10 @@ class _BrowseTimetablesScreenState extends State<BrowseTimetablesScreen> {
   }
 
   Future<void> _fetchClasses() async {
-    setState(() => _isLoading = true);
+    if (mounted) setState(() => _isLoading = true);
     // Fetch ALL classes in the college so search works across all classes
     final collegeClassesUrl = Uri.parse(
-      'http://127.0.0.1:5000/classes_with_cc/${widget.collegeId}',
+      'http://127.0.0.1:5000/classes/${widget.collegeId}',
     );
     final facultyClassesUrl = Uri.parse(
       'http://127.0.0.1:5000/faculty_related_classes/${widget.facultyId}',
@@ -80,7 +80,7 @@ class _BrowseTimetablesScreenState extends State<BrowseTimetablesScreen> {
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         if (data is List && data.isNotEmpty) {
-          setState(() {
+          if (mounted) setState(() {
             _classes = data;
             _filteredClasses = List.from(data);
             _isLoading = false;
@@ -95,16 +95,16 @@ class _BrowseTimetablesScreenState extends State<BrowseTimetablesScreen> {
       final response = await http.get(facultyClassesUrl);
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        setState(() {
+        if (mounted) setState(() {
           _classes = data;
           _filteredClasses = List.from(data);
           _isLoading = false;
         });
       } else {
-        setState(() => _isLoading = false);
+        if (mounted) setState(() => _isLoading = false);
       }
     } catch (_) {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 

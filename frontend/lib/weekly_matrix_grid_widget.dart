@@ -80,7 +80,7 @@ class _WeeklyMatrixGridWidgetState extends State<WeeklyMatrixGridWidget> {
 
   Future<void> _toggleMobileOrientation() async {
     final next = !_isMobileHorizontal;
-    setState(() => _isMobileHorizontal = next);
+    if (mounted) setState(() => _isMobileHorizontal = next);
     await SessionManager.saveGridOrientationPreference(next);
   }
 
@@ -88,7 +88,7 @@ class _WeeklyMatrixGridWidgetState extends State<WeeklyMatrixGridWidget> {
   void didUpdateWidget(WeeklyMatrixGridWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.entries != null) {
-      setState(() {
+      if (mounted) setState(() {
         _entries = widget.entries!;
         _isLoading = false;
       });
@@ -96,7 +96,7 @@ class _WeeklyMatrixGridWidgetState extends State<WeeklyMatrixGridWidget> {
   }
 
   Future<void> _fetchTimetable() async {
-    setState(() => _isLoading = true);
+    if (mounted) setState(() => _isLoading = true);
     await Future.wait([_fetchEntries(), _fetchHolidays()]);
     if (mounted) setState(() => _isLoading = false);
   }
@@ -136,7 +136,7 @@ class _WeeklyMatrixGridWidgetState extends State<WeeklyMatrixGridWidget> {
     final isoDate = DateHelpers.isoForDayCode(dayCode, weekOffset: _weekOffset);
     final isCustomHoliday = _holidays.containsKey(isoDate);
 
-    setState(() => _holidaySubmitting = true);
+    if (mounted) setState(() => _holidaySubmitting = true);
     try {
       if (isCustomHoliday) {
         final holidayId = _holidays[isoDate]['holiday_id'];
@@ -289,23 +289,27 @@ class _WeeklyMatrixGridWidgetState extends State<WeeklyMatrixGridWidget> {
     if (!widget.canEdit) return;
 
     if (entry != null && entry['entry_type'] != 'break') {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => FillSlotScreen(
-            entryId: entry['entry_id'],
-            entryType: entry['entry_type'] ?? 'class',
-            isEdit: true,
-            existingCourseName: entry['course_name'],
-            existingLabel: entry['label'],
-            existingStartTime: entry['start_time'],
-            existingEndTime: entry['end_time'],
+      if (widget.userRole == 'cc') {
+        _showCCSlotActionModal(entry, day, periodNo);
+      } else {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => FillSlotScreen(
+              entryId: entry['entry_id'],
+              entryType: entry['entry_type'] ?? 'class',
+              isEdit: true,
+              existingCourseName: entry['course_name'],
+              existingLabel: entry['label'],
+              existingStartTime: entry['start_time'],
+              existingEndTime: entry['end_time'],
+            ),
           ),
-        ),
-      ).then((val) {
-        _fetchTimetable();
-        widget.onTimetableChanged?.call();
-      });
+        ).then((val) {
+          _fetchTimetable();
+          widget.onTimetableChanged?.call();
+        });
+      }
     } else if (entry == null) {
       Navigator.push(
         context,
@@ -320,6 +324,183 @@ class _WeeklyMatrixGridWidgetState extends State<WeeklyMatrixGridWidget> {
         _fetchTimetable();
         widget.onTimetableChanged?.call();
       });
+    }
+  }
+
+  void _showCCSlotActionModal(dynamic entry, String day, int periodNo) {
+    final courseName = entry['course_name'] ?? 'Class Slot';
+    final facultyName = entry['faculty_name'] ?? 'Assigned Faculty';
+    final facultyId = entry['faculty_id'];
+    final isOpenLeave = entry['status_color'] == 'open_leave';
+    final isoDate = DateHelpers.isoForDayCode(day, weekOffset: _weekOffset);
+
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return Container(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF1565C0).withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(Icons.shield, color: Color(0xFF1565C0)),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          courseName,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        Text(
+                          'Faculty: $facultyName • $day Period $periodNo',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Colors.grey.shade700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              const Divider(),
+              const SizedBox(height: 8),
+
+              // Action 1: Edit Slot Details
+              ListTile(
+                leading: const Icon(Icons.edit_note, color: Colors.indigo),
+                title: const Text('Edit Slot Details'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => FillSlotScreen(
+                        entryId: entry['entry_id'],
+                        entryType: entry['entry_type'] ?? 'class',
+                        isEdit: true,
+                        existingCourseName: entry['course_name'],
+                        existingLabel: entry['label'],
+                        existingStartTime: entry['start_time'],
+                        existingEndTime: entry['end_time'],
+                      ),
+                    ),
+                  ).then((val) {
+                    _fetchTimetable();
+                    widget.onTimetableChanged?.call();
+                  });
+                },
+              ),
+
+              // Action 2: Mark Faculty Absent (CC Permission)
+              if (!isOpenLeave && facultyId != null)
+                ListTile(
+                  leading: const Icon(Icons.person_off_rounded, color: Colors.redAccent),
+                  title: Text('Mark $facultyName Absent'),
+                  subtitle: Text('Mark leave for $isoDate ($day Period $periodNo)'),
+                  onTap: () async {
+                    Navigator.pop(ctx);
+                    _confirmCCMarkAbsent(entry, day, periodNo, isoDate);
+                  },
+                ),
+
+              if (isOpenLeave)
+                const ListTile(
+                  leading: Icon(Icons.info_outline, color: Colors.orange),
+                  title: Text('Already Marked Absent'),
+                  subtitle: Text('This slot is currently open for substitution.'),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _confirmCCMarkAbsent(
+    dynamic entry,
+    String day,
+    int periodNo,
+    String isoDate,
+  ) async {
+    final facultyName = entry['faculty_name'] ?? 'Faculty';
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Confirm Mark Absent'),
+        content: Text(
+          'As Class Coordinator, do you want to mark $facultyName absent for $day Period $periodNo on $isoDate?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Mark Absent', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    try {
+      final res = await http.post(
+        Uri.parse('$_kApiBase/cc_mark_leave'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'cc_faculty_id': widget.currentFacultyId,
+          'entry_id': entry['entry_id'],
+          'leave_date': isoDate,
+        }),
+      );
+
+      final data = jsonDecode(res.body);
+      if (res.statusCode == 200) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(data['message'] ?? 'Faculty marked absent!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        _fetchTimetable();
+        widget.onTimetableChanged?.call();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(data['error'] ?? 'Failed to mark leave.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Network error: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
 
@@ -352,7 +533,7 @@ class _WeeklyMatrixGridWidgetState extends State<WeeklyMatrixGridWidget> {
   }
 
   void _toggleSwapMode() {
-    setState(() {
+    if (mounted) setState(() {
       _swapModeOn = !_swapModeOn;
       _swapSourceEntry = null;
     });
@@ -375,12 +556,12 @@ class _WeeklyMatrixGridWidgetState extends State<WeeklyMatrixGridWidget> {
     }
 
     if (_swapSourceEntry == null) {
-      setState(() => _swapSourceEntry = entryMap);
+      if (mounted) setState(() => _swapSourceEntry = entryMap);
       return;
     }
 
     if (_swapSourceEntry!['entry_id'] == entryMap['entry_id']) {
-      setState(() => _swapSourceEntry = null);
+      if (mounted) setState(() => _swapSourceEntry = null);
       return;
     }
 
@@ -463,7 +644,7 @@ class _WeeklyMatrixGridWidgetState extends State<WeeklyMatrixGridWidget> {
     if (confirmed == true) {
       await _submitSwapRequest(source, target);
     } else {
-      setState(() => _swapSourceEntry = null);
+      if (mounted) setState(() => _swapSourceEntry = null);
     }
   }
 
@@ -515,7 +696,7 @@ class _WeeklyMatrixGridWidgetState extends State<WeeklyMatrixGridWidget> {
     Map<String, dynamic> source,
     Map<String, dynamic> target,
   ) async {
-    setState(() => _swapSubmitting = true);
+    if (mounted) setState(() => _swapSubmitting = true);
     try {
       final response = await http.post(
         Uri.parse('$_kApiBase/send_swap_request'),
@@ -539,7 +720,7 @@ class _WeeklyMatrixGridWidgetState extends State<WeeklyMatrixGridWidget> {
       _showSwapSnack('Network error — could not send swap request.');
     } finally {
       if (mounted) {
-        setState(() {
+        if (mounted) setState(() {
           _swapSubmitting = false;
           _swapSourceEntry = null;
         });
@@ -816,7 +997,7 @@ class _WeeklyMatrixGridWidgetState extends State<WeeklyMatrixGridWidget> {
             children: [
               InkWell(
                 onTap: () {
-                  setState(() => _weekOffset--);
+                  if (mounted) setState(() => _weekOffset--);
                   _fetchHolidays();
                 },
                 child: Container(
@@ -1334,7 +1515,7 @@ class _WeeklyMatrixGridWidgetState extends State<WeeklyMatrixGridWidget> {
                       children: [
                         InkWell(
                           onTap: () {
-                            setState(() => _weekOffset++);
+                            if (mounted) setState(() => _weekOffset++);
                             _fetchHolidays();
                           },
                           child: Container(
@@ -1385,7 +1566,7 @@ class _WeeklyMatrixGridWidgetState extends State<WeeklyMatrixGridWidget> {
                                       ),
                                     ),
                                     onPressed: () {
-                                      setState(() => _weekOffset = 0);
+                                      if (mounted) setState(() => _weekOffset = 0);
                                       _fetchHolidays();
                                     },
                                   )

@@ -34,7 +34,7 @@ class _FacultySwapRequestScreenState extends State<FacultySwapRequestScreen> {
   }
 
   Future<void> _fetchAllEntries() async {
-    setState(() => _isLoading = true);
+    if (mounted) setState(() => _isLoading = true);
     List<dynamic> allEntries = [];
 
     try {
@@ -60,12 +60,12 @@ class _FacultySwapRequestScreenState extends State<FacultySwapRequestScreen> {
         }
       }
 
-      setState(() {
+      if (mounted) setState(() {
         _allEntries = allEntries;
         _isLoading = false;
       });
     } catch (e) {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -157,7 +157,7 @@ class _FacultySwapRequestScreenState extends State<FacultySwapRequestScreen> {
                                   '${entry['day_of_week']} Period ${entry['period_no']}',
                                 ),
                                 onTap: () {
-                                  setState(() {
+                                  if (mounted) setState(() {
                                     _selectedMyEntry = entry;
                                   });
                                 },
@@ -205,7 +205,7 @@ class _FacultySwapRequestScreenState extends State<FacultySwapRequestScreen> {
                       ),
                       TextButton(
                         onPressed: () {
-                          setState(() {
+                          if (mounted) setState(() {
                             _selectedMyEntry = null;
                           });
                         },

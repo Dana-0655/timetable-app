@@ -164,6 +164,7 @@ class SessionManager {
     return prefs.getBool('mobile_grid_horizontal_pref') ?? false;
   }
 
+  //----STUDENT OFFLINE VIEW OF TIMETABLE---
   // ---- Offline Timetable Caching ----
   static Future<void> saveCachedTimetable(
     int classId,
@@ -173,7 +174,10 @@ class SessionManager {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('cached_tt_entries_$classId', jsonEncode(entries));
     await prefs.setString('cached_tt_info_$classId', jsonEncode(classInfo));
-    await prefs.setString('cached_tt_time_$classId', DateTime.now().toIso8601String());
+    await prefs.setString(
+      'cached_tt_time_$classId',
+      DateTime.now().toIso8601String(),
+    );
   }
 
   static Future<Map<String, dynamic>?> getCachedTimetable(int classId) async {
@@ -185,7 +189,9 @@ class SessionManager {
     try {
       return {
         'entries': jsonDecode(entriesRaw) as List<dynamic>,
-        'classInfo': infoRaw != null ? jsonDecode(infoRaw) as Map<String, dynamic> : <String, dynamic>{},
+        'classInfo': infoRaw != null
+            ? jsonDecode(infoRaw) as Map<String, dynamic>
+            : <String, dynamic>{},
         'cachedAt': timeRaw,
       };
     } catch (_) {
@@ -193,4 +199,3 @@ class SessionManager {
     }
   }
 }
-

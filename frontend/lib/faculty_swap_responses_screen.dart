@@ -27,14 +27,14 @@ class _FacultySwapResponsesScreenState
   }
 
   Future<void> _fetchIncoming() async {
-    setState(() => _isLoadingIncoming = true);
+    if (mounted) setState(() => _isLoadingIncoming = true);
     final url = Uri.parse(
       'http://127.0.0.1:5000/swap_requests/${widget.facultyId}',
     );
     try {
       final response = await http.get(url);
       if (response.statusCode == 200) {
-        setState(() {
+        if (mounted) setState(() {
           _incoming = jsonDecode(response.body);
         });
       }
@@ -43,25 +43,25 @@ class _FacultySwapResponsesScreenState
     }
     // Always clear the spinner, even on a non-200 response or exception —
     // otherwise a backend error leaves this stuck loading forever.
-    setState(() => _isLoadingIncoming = false);
+    if (mounted) setState(() => _isLoadingIncoming = false);
   }
 
   Future<void> _fetchSent() async {
-    setState(() => _isLoadingSent = true);
+    if (mounted) setState(() => _isLoadingSent = true);
     final url = Uri.parse(
       'http://127.0.0.1:5000/my_sent_swap_requests/${widget.facultyId}',
     );
     try {
       final response = await http.get(url);
       if (response.statusCode == 200) {
-        setState(() {
+        if (mounted) setState(() {
           _sent = jsonDecode(response.body);
         });
       }
     } catch (e) {
       // Silently fail for now
     }
-    setState(() => _isLoadingSent = false);
+    if (mounted) setState(() => _isLoadingSent = false);
   }
 
   Future<void> _resolveRequest(int swapId, String decision) async {
@@ -125,8 +125,140 @@ class _FacultySwapResponsesScreenState
     );
   }
 
+  Widget _buildIncomingList(bool scrollable) {
+    if (_isLoadingIncoming) {
+      return const Center(child: Padding(
+        padding: EdgeInsets.all(16.0),
+        child: CircularProgressIndicator(),
+      ));
+    }
+    if (_incoming.isEmpty) {
+      return const Center(child: Padding(
+        padding: EdgeInsets.all(16.0),
+        child: Text('No pending swap requests.'),
+      ));
+    }
+    return ListView.builder(
+      physics: scrollable
+          ? const AlwaysScrollableScrollPhysics()
+          : const NeverScrollableScrollPhysics(),
+      shrinkWrap: !scrollable,
+      padding: const EdgeInsets.all(16),
+      itemCount: _incoming.length,
+      itemBuilder: (context, index) {
+        final req = _incoming[index];
+        return Card(
+          child: ListTile(
+            title: Text('From: ${req['requester_name']}'),
+            subtitle: Text(
+              'Wants: ${req['target_class']} \u2022 ${req['target_slot']}'
+              '${req['target_course'] != null ? ' \u2022 ${req['target_course']}' : ''}\n'
+              'Offers: ${req['requester_class']} \u2022 ${req['requester_slot']}'
+              '${req['requester_course'] != null ? ' \u2022 ${req['requester_course']}' : ''}',
+            ),
+            isThreeLine: true,
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  icon: const Icon(
+                    Icons.check,
+                    color: Colors.green,
+                  ),
+                  onPressed: () =>
+                      _resolveRequest(req['swap_id'], 'accepted'),
+                ),
+                IconButton(
+                  icon: const Icon(
+                    Icons.close,
+                    color: Colors.red,
+                  ),
+                  onPressed: () =>
+                      _resolveRequest(req['swap_id'], 'rejected'),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildSentList(bool scrollable) {
+    if (_isLoadingSent) {
+      return const Center(child: Padding(
+        padding: EdgeInsets.all(16.0),
+        child: CircularProgressIndicator(),
+      ));
+    }
+    if (_sent.isEmpty) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(16.0),
+          child: Text('You haven\'t sent any swap requests.'),
+        ),
+      );
+    }
+    return ListView.builder(
+      physics: scrollable
+          ? const AlwaysScrollableScrollPhysics()
+          : const NeverScrollableScrollPhysics(),
+      shrinkWrap: !scrollable,
+      padding: const EdgeInsets.all(16),
+      itemCount: _sent.length,
+      itemBuilder: (context, index) {
+        final req = _sent[index];
+        return Card(
+          child: ListTile(
+            title: Text('To: ${req['target_name']}'),
+            subtitle: Text(
+              'You offer: ${req['requester_class']} \u2022 ${req['requester_slot']}'
+              '${req['requester_course'] != null ? ' \u2022 ${req['requester_course']}' : ''}\n'
+              'You want: ${req['target_class']} \u2022 ${req['target_slot']}'
+              '${req['target_course'] != null ? ' \u2022 ${req['target_course']}' : ''}'
+              '${req['status'] == 'rejected' && (req['rejection_reason'] ?? '').isNotEmpty ? '\nReason: ${req['rejection_reason']}' : ''}',
+            ),
+            isThreeLine: true,
+            trailing: _statusChip(req['status']),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final isMobile = MediaQuery.of(context).size.width < 600;
+
+    if (isMobile) {
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('Swap Requests'),
+        ),
+        body: ListView(
+          children: [
+            const Padding(
+              padding: EdgeInsets.only(left: 16.0, top: 24.0, right: 16.0, bottom: 8.0),
+              child: Text(
+                'Requests to You',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+            ),
+            _buildIncomingList(false),
+            const Divider(height: 32, thickness: 1),
+            const Padding(
+              padding: EdgeInsets.only(left: 16.0, top: 8.0, right: 16.0, bottom: 8.0),
+              child: Text(
+                'Sent by You',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+            ),
+            _buildSentList(false),
+          ],
+        ),
+      );
+    }
+
     return DefaultTabController(
       length: 2,
       child: Scaffold(
@@ -141,79 +273,8 @@ class _FacultySwapResponsesScreenState
         ),
         body: TabBarView(
           children: [
-            // --- Requests to You (act on them) ---
-            _isLoadingIncoming
-                ? const Center(child: CircularProgressIndicator())
-                : _incoming.isEmpty
-                ? const Center(child: Text('No pending swap requests.'))
-                : ListView.builder(
-                    padding: const EdgeInsets.all(16),
-                    itemCount: _incoming.length,
-                    itemBuilder: (context, index) {
-                      final req = _incoming[index];
-                      return Card(
-                        child: ListTile(
-                          title: Text('From: ${req['requester_name']}'),
-                          subtitle: Text(
-                            'Wants: ${req['target_class']} \u2022 ${req['target_slot']}'
-                            '${req['target_course'] != null ? ' \u2022 ${req['target_course']}' : ''}\n'
-                            'Offers: ${req['requester_class']} \u2022 ${req['requester_slot']}'
-                            '${req['requester_course'] != null ? ' \u2022 ${req['requester_course']}' : ''}',
-                          ),
-                          isThreeLine: true,
-                          trailing: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              IconButton(
-                                icon: const Icon(
-                                  Icons.check,
-                                  color: Colors.green,
-                                ),
-                                onPressed: () =>
-                                    _resolveRequest(req['swap_id'], 'accepted'),
-                              ),
-                              IconButton(
-                                icon: const Icon(
-                                  Icons.close,
-                                  color: Colors.red,
-                                ),
-                                onPressed: () =>
-                                    _resolveRequest(req['swap_id'], 'rejected'),
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-            // --- Sent by You (read-only status) ---
-            _isLoadingSent
-                ? const Center(child: CircularProgressIndicator())
-                : _sent.isEmpty
-                ? const Center(
-                    child: Text('You haven\'t sent any swap requests.'),
-                  )
-                : ListView.builder(
-                    padding: const EdgeInsets.all(16),
-                    itemCount: _sent.length,
-                    itemBuilder: (context, index) {
-                      final req = _sent[index];
-                      return Card(
-                        child: ListTile(
-                          title: Text('To: ${req['target_name']}'),
-                          subtitle: Text(
-                            'You offer: ${req['requester_class']} \u2022 ${req['requester_slot']}'
-                            '${req['requester_course'] != null ? ' \u2022 ${req['requester_course']}' : ''}\n'
-                            'You want: ${req['target_class']} \u2022 ${req['target_slot']}'
-                            '${req['target_course'] != null ? ' \u2022 ${req['target_course']}' : ''}'
-                            '${req['status'] == 'rejected' && (req['rejection_reason'] ?? '').isNotEmpty ? '\nReason: ${req['rejection_reason']}' : ''}',
-                          ),
-                          isThreeLine: true,
-                          trailing: _statusChip(req['status']),
-                        ),
-                      );
-                    },
-                  ),
+            _buildIncomingList(true),
+            _buildSentList(true),
           ],
         ),
       ),

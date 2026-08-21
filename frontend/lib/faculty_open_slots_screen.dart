@@ -32,7 +32,7 @@ class _FacultyOpenSlotsScreenState extends State<FacultyOpenSlotsScreen> {
   }
 
   Future<void> _fetchOpenSlots() async {
-    setState(() => _isLoading = true);
+    if (mounted) setState(() => _isLoading = true);
     List<dynamic> allOpen = [];
 
     try {
@@ -61,12 +61,12 @@ class _FacultyOpenSlotsScreenState extends State<FacultyOpenSlotsScreen> {
         }
       }
 
-      setState(() {
+      if (mounted) setState(() {
         _openEntries = allOpen;
         _isLoading = false;
       });
     } catch (e) {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 

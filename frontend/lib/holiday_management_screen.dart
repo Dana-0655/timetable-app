@@ -23,18 +23,18 @@ class _HolidayManagementScreenState extends State<HolidayManagementScreen> {
   }
 
   Future<void> _fetchHolidays() async {
-    setState(() => _isLoading = true);
+    if (mounted) setState(() => _isLoading = true);
     final url = Uri.parse('http://127.0.0.1:5000/holidays/${widget.collegeId}');
     try {
       final response = await http.get(url);
       if (response.statusCode == 200) {
-        setState(() {
+        if (mounted) setState(() {
           _holidays = jsonDecode(response.body);
           _isLoading = false;
         });
       }
     } catch (e) {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 

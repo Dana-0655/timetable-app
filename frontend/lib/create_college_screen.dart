@@ -29,13 +29,13 @@ class _CreateCollegeScreenState extends State<CreateCollegeScreen> {
         _adminNameController.text.trim().isEmpty ||
         _adminEmailController.text.trim().isEmpty ||
         _adminPasswordController.text.isEmpty) {
-      setState(() {
+      if (mounted) setState(() {
         _errorMessage = 'Please fill in all required fields.';
       });
       return;
     }
 
-    setState(() {
+    if (mounted) setState(() {
       _isLoading = true;
       _errorMessage = null;
     });
@@ -81,17 +81,17 @@ class _CreateCollegeScreenState extends State<CreateCollegeScreen> {
           );
         }
       } else {
-        setState(() {
+        if (mounted) setState(() {
           _errorMessage = data['error'] ?? 'Could not create college.';
         });
       }
     } catch (e) {
-      setState(() {
+      if (mounted) setState(() {
         _errorMessage = 'Could not connect to server.';
       });
     }
 
-    setState(() {
+    if (mounted) setState(() {
       _isLoading = false;
     });
   }
@@ -150,7 +150,7 @@ class _CreateCollegeScreenState extends State<CreateCollegeScreen> {
             TextField(
               controller: _adminEmailController,
               decoration: const InputDecoration(
-                labelText: 'Email',
+                labelText: 'User ID',
                 border: OutlineInputBorder(),
               ),
             ),
@@ -166,7 +166,7 @@ class _CreateCollegeScreenState extends State<CreateCollegeScreen> {
                     _obscurePassword ? Icons.visibility_off : Icons.visibility,
                   ),
                   onPressed: () {
-                    setState(() => _obscurePassword = !_obscurePassword);
+                    if (mounted) setState(() => _obscurePassword = !_obscurePassword);
                   },
                 ),
               ),

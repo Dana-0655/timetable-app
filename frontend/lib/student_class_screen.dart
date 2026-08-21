@@ -36,18 +36,18 @@ class _StudentClassScreenState extends State<StudentClassScreen> {
     try {
       final response = await http.get(url);
       if (response.statusCode == 200) {
-        setState(() {
+        if (mounted) setState(() {
           _classes = jsonDecode(response.body);
           _isLoading = false;
         });
       } else {
-        setState(() {
+        if (mounted) setState(() {
           _errorMessage = 'Could not load classes.';
           _isLoading = false;
         });
       }
     } catch (e) {
-      setState(() {
+      if (mounted) setState(() {
         _errorMessage = 'Could not connect to server.';
         _isLoading = false;
       });

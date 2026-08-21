@@ -1,38 +1,35 @@
-from flask_cors import CORS
+
 import os
+import uuid
+import threading
+import io
+import pandas as pd
+from flask_cors import CORS
 from dotenv import load_dotenv
-load_dotenv()
-# pyrefly: ignore [missing-import]
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_file
 from flask_sqlalchemy import SQLAlchemy
 from flask_bcrypt import Bcrypt
 from apscheduler.schedulers.background import BackgroundScheduler
 from datetime import datetime, timedelta
 from apscheduler.triggers.cron import CronTrigger
-
-import uuid
-import threading
-import io
-import pandas as pd
-from flask import request, jsonify, send_file
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from ortools.sat.python import cp_model
 from openpyxl.worksheet.datavalidation import DataValidation
-from ortools.sat.python import cp_model
-from flask import Flask, request, jsonify
 from solver import generate_timetable_with_ortools # Import your solver function
-import os
-import pandas as pd
-from flask import Flask, request, jsonify
 
+load_dotenv()
 
 app = Flask(__name__)
 CORS(app)
 
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL')
 
-app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {"connect_args": {"ssl": {"ca": "ca.pem"} }}
+app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
+    "connect_args": {"ssl": {"ca": "ca.pem"}},
+    "pool_pre_ping": True,
+    "pool_recycle": 280,
+}
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
@@ -1689,6 +1686,67 @@ def mark_leave():
     db.session.commit()
 
     return jsonify({"message": "Leave marked and slot highlighted!", "leave_id": new_leave.leave_id})
+
+@app.route("/cc_mark_leave", methods=["POST"])
+def cc_mark_leave():
+    data = request.get_json()
+    cc_faculty_id = data.get("cc_faculty_id")
+    entry_id = data.get("entry_id")
+    leave_date = data.get("leave_date")
+
+    if not cc_faculty_id or not entry_id or not leave_date:
+        return jsonify({"error": "Missing cc_faculty_id, entry_id, or leave_date"}), 400
+
+    entry = TimetableEntry.query.get(entry_id)
+    if not entry:
+        return jsonify({"error": "Timetable entry not found"}), 404
+
+    class_obj = Class.query.get(entry.class_id)
+    if not class_obj:
+        return jsonify({"error": "Class not found"}), 404
+
+    # VERIFICATION: Only the designated Class Coordinator of this class can mark absent
+    if class_obj.cc_faculty_id != int(cc_faculty_id):
+        return jsonify({"error": "Unauthorized: You are not the Class Coordinator of this class."}), 403
+
+    target_faculty_id = entry.faculty_id
+    if not target_faculty_id:
+        return jsonify({"error": "No faculty assigned to this slot"}), 400
+
+    # Check if leave is already marked for this entry & date
+    existing_leave = Leave.query.filter_by(
+        entry_id=entry_id,
+        leave_date=leave_date
+    ).first()
+
+    if existing_leave:
+        return jsonify({"error": "Faculty is already marked absent for this slot."}), 400
+
+    new_leave = Leave(
+        faculty_id=target_faculty_id,
+        entry_id=entry_id,
+        leave_date=leave_date
+    )
+    db.session.add(new_leave)
+    entry.status_color = "open_leave"
+    db.session.commit()
+
+    # Notify absent faculty member
+    target_faculty = Faculty.query.get(target_faculty_id)
+    cc_faculty = Faculty.query.get(cc_faculty_id)
+    cc_name = cc_faculty.name if cc_faculty else "Class Coordinator"
+    
+    if target_faculty:
+        create_notification(
+            "faculty", target_faculty.faculty_id,
+            f"Your Class Coordinator ({cc_name}) marked you absent for {entry.day_of_week} Period {entry.period_no} in {class_obj.year} - {class_obj.department} Sec {class_obj.section} on {leave_date}.",
+            "leave_notice"
+        )
+
+    return jsonify({
+        "message": f"Faculty {target_faculty.name if target_faculty else ''} marked absent for this slot!",
+        "leave_id": new_leave.leave_id
+    })
 
 @app.route("/unmark_leave", methods=["POST"])
 def unmark_leave():

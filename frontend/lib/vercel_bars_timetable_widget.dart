@@ -62,7 +62,7 @@ class _VercelBarsTimetableWidgetState extends State<VercelBarsTimetableWidget> {
     try {
       final response = await http.get(url);
       if (response.statusCode == 200 && mounted) {
-        setState(() {
+        if (mounted) setState(() {
           _holidays = Map<String, dynamic>.from(jsonDecode(response.body));
         });
       }
@@ -76,7 +76,7 @@ class _VercelBarsTimetableWidgetState extends State<VercelBarsTimetableWidget> {
     final isoDate = DateHelpers.isoForDayCode(dayCode, weekOffset: _weekOffset);
     final isCustomHoliday = _holidays.containsKey(isoDate);
 
-    setState(() => _holidaySubmitting = true);
+    if (mounted) setState(() => _holidaySubmitting = true);
     try {
       if (isCustomHoliday) {
         final holidayId = _holidays[isoDate]['holiday_id'];
@@ -578,7 +578,7 @@ class _VercelBarsTimetableWidgetState extends State<VercelBarsTimetableWidget> {
   }
 
   void _toggleSwapMode() {
-    setState(() {
+    if (mounted) setState(() {
       _swapModeOn = !_swapModeOn;
       _swapSourceEntry = null;
     });
@@ -599,13 +599,13 @@ class _VercelBarsTimetableWidgetState extends State<VercelBarsTimetableWidget> {
     }
 
     if (_swapSourceEntry == null) {
-      setState(() => _swapSourceEntry = entry);
+      if (mounted) setState(() => _swapSourceEntry = entry);
       return;
     }
 
     // Tapping the same cell again deselects it.
     if (_swapSourceEntry!['entry_id'] == entry['entry_id']) {
-      setState(() => _swapSourceEntry = null);
+      if (mounted) setState(() => _swapSourceEntry = null);
       return;
     }
 
@@ -687,7 +687,7 @@ class _VercelBarsTimetableWidgetState extends State<VercelBarsTimetableWidget> {
     if (confirmed == true) {
       await _submitSwapRequest(source, target);
     } else {
-      setState(() => _swapSourceEntry = null);
+      if (mounted) setState(() => _swapSourceEntry = null);
     }
   }
 
@@ -739,7 +739,7 @@ class _VercelBarsTimetableWidgetState extends State<VercelBarsTimetableWidget> {
     Map<String, dynamic> source,
     Map<String, dynamic> target,
   ) async {
-    setState(() => _swapSubmitting = true);
+    if (mounted) setState(() => _swapSubmitting = true);
     try {
       final response = await http.post(
         Uri.parse('$_kApiBase/send_swap_request'),
@@ -763,7 +763,7 @@ class _VercelBarsTimetableWidgetState extends State<VercelBarsTimetableWidget> {
       _showSnack('Network error — could not send swap request.');
     } finally {
       if (mounted) {
-        setState(() {
+        if (mounted) setState(() {
           _swapSubmitting = false;
           _swapSourceEntry = null;
         });
@@ -941,7 +941,7 @@ class _VercelBarsTimetableWidgetState extends State<VercelBarsTimetableWidget> {
                           message: 'Previous Week',
                           child: InkWell(
                             onTap: () {
-                              setState(() => _weekOffset--);
+                              if (mounted) setState(() => _weekOffset--);
                               _fetchHolidays();
                             },
                             borderRadius: BorderRadius.circular(20),
@@ -1052,7 +1052,7 @@ class _VercelBarsTimetableWidgetState extends State<VercelBarsTimetableWidget> {
                           message: 'Next / Future Week',
                           child: InkWell(
                             onTap: () {
-                              setState(() => _weekOffset++);
+                              if (mounted) setState(() => _weekOffset++);
                               _fetchHolidays();
                             },
                             borderRadius: BorderRadius.circular(20),
@@ -1084,7 +1084,7 @@ class _VercelBarsTimetableWidgetState extends State<VercelBarsTimetableWidget> {
                               style: const TextStyle(fontSize: 10),
                             ),
                             onPressed: () {
-                              setState(() => _weekOffset = 0);
+                              if (mounted) setState(() => _weekOffset = 0);
                               _fetchHolidays();
                             },
                           ),

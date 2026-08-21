@@ -42,6 +42,27 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
   }
 
   Future<void> _logout() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Logout'),
+        content: const Text('Are you sure you want to log out?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Logout', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
     await SessionManager.clearSession();
     await SessionManager.clearLastPage();
     final savedCollege = await SessionManager.getSavedCollegeCode();
@@ -68,20 +89,20 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
   }
 
   Future<void> _fetchRelatedClasses() async {
-    setState(() => _isLoading = true);
+    if (mounted) setState(() => _isLoading = true);
     final url = Uri.parse(
       'http://127.0.0.1:5000/faculty_related_classes/${widget.facultyId}',
     );
     try {
       final response = await http.get(url);
       if (response.statusCode == 200) {
-        setState(() {
+        if (mounted) setState(() {
           _relatedClasses = jsonDecode(response.body);
           _isLoading = false;
         });
       }
     } catch (e) {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -127,7 +148,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
             SwapInboxIcon(facultyId: widget.facultyId),
             IconButton(
               icon: const Icon(Icons.pending_actions_rounded),
-              tooltip: 'My Leave Requests',
+              tooltip: 'My Leaves',
               onPressed: () => Navigator.push(
                 context,
                 MaterialPageRoute(
@@ -237,7 +258,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
                     children: [
                       Icon(Icons.pending_actions_rounded, size: 20, color: Color(0xFFEF6C00)),
                       SizedBox(width: 12),
-                      Text('My Leave Requests'),
+                      Text('My Leaves'),
                     ],
                   ),
                 ),
@@ -299,10 +320,10 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
 
                         if (isMobile) {
                           return Card(
-                            margin: const EdgeInsets.only(bottom: 12),
-                            elevation: 2,
+                            margin: const EdgeInsets.only(bottom: 16),
+                            elevation: 0,
                             shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(14),
+                              borderRadius: BorderRadius.circular(16),
                               side: BorderSide(
                                 color: isMyCC ? Colors.purple.shade200 : Colors.grey.shade200,
                               ),
@@ -424,6 +445,13 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
                         }
 
                         return Card(
+                          margin: const EdgeInsets.only(bottom: 12),
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            side: BorderSide(color: Colors.grey.shade200),
+                          ),
+                          color: isMyCC ? Colors.purple.shade50 : Colors.white,
                           child: ListTile(
                             title: Text(
                               '${cls['year']} - Section ${cls['section']}',

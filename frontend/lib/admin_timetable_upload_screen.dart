@@ -110,7 +110,7 @@ class _AdminTimetableUploadScreenState
         } catch (_) {}
       }
       if (bytes != null) {
-        setState(() {
+        if (mounted) setState(() {
           _fileBytes = bytes;
           _fileName = picked.name;
           _selectedPlatformFile = picked;
@@ -128,7 +128,7 @@ class _AdminTimetableUploadScreenState
       return;
     }
 
-    setState(() {
+    if (mounted) setState(() {
       _isProcessing = true;
       _statusMessage = 'Uploading file...';
     });
@@ -157,13 +157,13 @@ class _AdminTimetableUploadScreenState
         String jobId = data['job_id'];
         _pollJobStatus(jobId);
       } else {
-        setState(() {
+        if (mounted) setState(() {
           _isProcessing = false;
           _statusMessage = 'Upload failed: ${response.body}';
         });
       }
     } catch (e) {
-      setState(() {
+      if (mounted) setState(() {
         _isProcessing = false;
         _statusMessage = 'Error: $e';
       });
@@ -178,7 +178,7 @@ class _AdminTimetableUploadScreenState
       // Timeout after 150 polls (~5 minutes)
       if (pollCount > 150) {
         timer.cancel();
-        setState(() {
+        if (mounted) setState(() {
           _isProcessing = false;
           _statusMessage = '';
         });
@@ -193,17 +193,17 @@ class _AdminTimetableUploadScreenState
           final data = jsonDecode(res.body);
           String status = data['status'];
 
-          setState(() {
+          if (mounted) setState(() {
             _statusMessage = data['progress_message'] ?? 'Processing...';
           });
 
           if (status == 'success') {
             timer.cancel();
-            setState(() => _isProcessing = false);
+            if (mounted) setState(() => _isProcessing = false);
             _showResultDialog(data['result']);
           } else if (status == 'failed') {
             timer.cancel();
-            setState(() => _isProcessing = false);
+            if (mounted) setState(() => _isProcessing = false);
             _showErrorDialog(data['error']);
           }
         }

@@ -32,28 +32,28 @@ class _PromoteFacultyScreenState extends State<PromoteFacultyScreen> {
   }
 
   void _onSearchChanged() {
-    setState(() {
+    if (mounted) setState(() {
       _searchQuery = _searchController.text.trim().toLowerCase();
     });
   }
 
   Future<void> _fetchFaculty() async {
-    setState(() => _isLoading = true);
+    if (mounted) setState(() => _isLoading = true);
     final url = Uri.parse(
       'http://127.0.0.1:5000/faculty_list/${widget.collegeId}',
     );
     try {
       final response = await http.get(url);
       if (response.statusCode == 200) {
-        setState(() {
+        if (mounted) setState(() {
           _facultyList = jsonDecode(response.body);
           _isLoading = false;
         });
       } else {
-        setState(() => _isLoading = false);
+        if (mounted) setState(() => _isLoading = false);
       }
     } catch (e) {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -63,7 +63,7 @@ class _PromoteFacultyScreenState extends State<PromoteFacultyScreen> {
       builder: (context) => AlertDialog(
         title: const Text('Promote to Admin'),
         content: Text(
-          'Give $name Admin access? They will be able to log in as Admin using their existing email and password.',
+          'Give $name Admin access? They will be able to log in as Admin using their existing user ID and password.',
         ),
         actions: [
           TextButton(
@@ -133,7 +133,7 @@ class _PromoteFacultyScreenState extends State<PromoteFacultyScreen> {
                       child: TextField(
                         controller: _searchController,
                         decoration: InputDecoration(
-                          hintText: 'Search by faculty name or email...',
+                          hintText: 'Search by faculty name or user ID...',
                           prefixIcon: const Icon(Icons.search, color: Color(0xFF1565C0)),
                           suffixIcon: _searchQuery.isNotEmpty
                               ? IconButton(

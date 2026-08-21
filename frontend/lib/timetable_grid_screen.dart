@@ -64,7 +64,7 @@ class _TimetableGridScreenState extends State<TimetableGridScreen> {
     } catch (_) {}
 
     if (mounted) {
-      setState(() {});
+      if (mounted) setState(() {});
     }
   }
 

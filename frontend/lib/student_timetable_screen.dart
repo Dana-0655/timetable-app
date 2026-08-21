@@ -7,7 +7,6 @@ import 'class_info_dialog.dart';
 import 'swap_color_utils.dart';
 import 'session_manager.dart';
 import 'student_department_screen.dart';
-import 'role_selection_screen.dart';
 import 'main.dart';
 
 class StudentTimetableScreen extends StatefulWidget {
@@ -45,7 +44,7 @@ class _StudentTimetableScreenState extends State<StudentTimetableScreen> {
   Future<void> _checkPinnedStatus() async {
     final pinned = await SessionManager.getDefaultClass();
     if (mounted) {
-      setState(() {
+      if (mounted) setState(() {
         _isPinned = pinned != null && pinned['classId'] == widget.classId;
       });
     }
@@ -55,7 +54,7 @@ class _StudentTimetableScreenState extends State<StudentTimetableScreen> {
     if (_isPinned) {
       await SessionManager.clearDefaultClass();
       if (mounted) {
-        setState(() => _isPinned = false);
+        if (mounted) setState(() => _isPinned = false);
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
@@ -74,7 +73,7 @@ class _StudentTimetableScreenState extends State<StudentTimetableScreen> {
             : null,
       );
       if (mounted) {
-        setState(() => _isPinned = true);
+        if (mounted) setState(() => _isPinned = true);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
@@ -95,14 +94,14 @@ class _StudentTimetableScreenState extends State<StudentTimetableScreen> {
     if (cachedData != null && mounted) {
       final cachedEntries = cachedData['entries'] as List<dynamic>;
       final cachedInfo = cachedData['classInfo'] as Map<String, dynamic>;
-      setState(() {
+      if (mounted) setState(() {
         _entries = cachedEntries;
         _classInfo = cachedInfo;
         _swapColorIndex = buildSwapColorIndex(_entries);
         _isLoading = false;
       });
     } else {
-      setState(() => _isLoading = true);
+      if (mounted) setState(() => _isLoading = true);
     }
 
     final infoUrl = Uri.parse(
@@ -155,7 +154,7 @@ class _StudentTimetableScreenState extends State<StudentTimetableScreen> {
 
     if (mounted) {
       final wasOffline = !networkSuccess && cachedData != null;
-      setState(() {
+      if (mounted) setState(() {
         _isLoading = false;
         _isOfflineMode = wasOffline;
       });
@@ -564,7 +563,7 @@ class _StudentTimetableScreenState extends State<StudentTimetableScreen> {
                   constraints: const BoxConstraints(),
                   tooltip: 'Dismiss Banner',
                   onPressed: () {
-                    setState(() => _bannerDismissed = true);
+                    if (mounted) setState(() => _bannerDismissed = true);
                   },
                 ),
               ],
@@ -687,7 +686,7 @@ class _StudentTimetableScreenState extends State<StudentTimetableScreen> {
                   Navigator.pushAndRemoveUntil(
                     context,
                     MaterialPageRoute(
-                      builder: (_) => const RoleSelectionScreen(),
+                      builder: (_) => const WelcomeScreen(),
                     ),
                     (route) => false,
                   );
@@ -709,76 +708,92 @@ class _StudentTimetableScreenState extends State<StudentTimetableScreen> {
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : Column(
-              children: [
-                if (_isOfflineMode) _buildOfflineBanner(),
+          : RefreshIndicator(
+              onRefresh: _fetchClassData,
+              child: Column(
+                children: [
+                  if (_isOfflineMode) _buildOfflineBanner(),
 
-                // Live Alert Banner (if updates exist)
-                _buildLiveAlertBanner(),
+                  // Live Alert Banner (if updates exist)
+                  _buildLiveAlertBanner(),
 
-                // Dark Header Card matching Joz 2x Grid Matrix design
-                Container(
-                  width: double.infinity,
-                  margin: EdgeInsets.fromLTRB(12, 4, 12, isMobile ? 6 : 10),
-                  padding: EdgeInsets.symmetric(
-                    horizontal: isMobile ? 12 : 16,
-                    vertical: isMobile ? 8 : 16,
-                  ),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF0F172A),
-                    borderRadius: BorderRadius.circular(16),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.15),
-                        blurRadius: 8,
-                        offset: const Offset(0, 4),
-                      ),
-                    ],
-                  ),
-                  child: Column(
-                    children: [
-                      Text(
-                        displayTitle,
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: isMobile ? 15 : 18,
-                          fontWeight: FontWeight.bold,
+                  // Dark Header Card matching Joz 2x Grid Matrix design
+                  Container(
+                    width: double.infinity,
+                    margin: EdgeInsets.fromLTRB(12, 4, 12, isMobile ? 6 : 10),
+                    padding: EdgeInsets.symmetric(
+                      horizontal: isMobile ? 12 : 16,
+                      vertical: isMobile ? 8 : 16,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF0F172A),
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.15),
+                          blurRadius: 8,
+                          offset: const Offset(0, 4),
                         ),
-                      ),
-                      SizedBox(height: isMobile ? 6 : 12),
+                      ],
+                    ),
+                    child: Column(
+                      children: [
+                        Text(
+                          displayTitle,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: isMobile ? 15 : 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        SizedBox(height: isMobile ? 6 : 12),
 
-                      // Chips Row: Branch | Room | CC | Pinned Badge
-                      Wrap(
-                        alignment: WrapAlignment.center,
-                        spacing: 8,
-                        runSpacing: 6,
-                        children: [
-                          if (_isPinned)
+                        // Chips Row: Branch | Room | CC | Pinned Badge
+                        Wrap(
+                          alignment: WrapAlignment.center,
+                          spacing: 8,
+                          runSpacing: 6,
+                          children: [
+                            if (_isPinned)
+                              Chip(
+                                avatar: const Icon(
+                                  Icons.push_pin_rounded,
+                                  size: 13,
+                                  color: Colors.amberAccent,
+                                ),
+                                label: const Text('Pinned Default'),
+                                backgroundColor: Colors.amber.shade900.withValues(
+                                  alpha: 0.3,
+                                ),
+                                labelStyle: const TextStyle(
+                                  color: Colors.amberAccent,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                                padding: EdgeInsets.zero,
+                              ),
+                            if (dept.isNotEmpty)
+                              Chip(
+                                avatar: const Icon(
+                                  Icons.school,
+                                  size: 14,
+                                  color: Colors.indigoAccent,
+                                ),
+                                label: Text('Branch: $dept'),
+                                backgroundColor: const Color(0xFF1E293B),
+                                labelStyle: const TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 12,
+                                ),
+                                padding: EdgeInsets.zero,
+                              ),
                             Chip(
                               avatar: const Icon(
-                                Icons.push_pin_rounded,
-                                size: 13,
-                                color: Colors.amberAccent,
-                              ),
-                              label: const Text('Pinned Default'),
-                              backgroundColor: Colors.amber.shade900.withValues(
-                                alpha: 0.3,
-                              ),
-                              labelStyle: const TextStyle(
-                                color: Colors.amberAccent,
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                              ),
-                              padding: EdgeInsets.zero,
-                            ),
-                          if (dept.isNotEmpty)
-                            Chip(
-                              avatar: const Icon(
-                                Icons.school,
+                                Icons.meeting_room,
                                 size: 14,
-                                color: Colors.indigoAccent,
+                                color: Colors.amberAccent,
                               ),
-                              label: Text('Branch: $dept'),
+                              label: Text('Room: $room'),
                               backgroundColor: const Color(0xFF1E293B),
                               labelStyle: const TextStyle(
                                 color: Colors.white70,
@@ -786,90 +801,77 @@ class _StudentTimetableScreenState extends State<StudentTimetableScreen> {
                               ),
                               padding: EdgeInsets.zero,
                             ),
-                          Chip(
-                            avatar: const Icon(
-                              Icons.meeting_room,
-                              size: 14,
-                              color: Colors.amberAccent,
-                            ),
-                            label: Text('Room: $room'),
-                            backgroundColor: const Color(0xFF1E293B),
-                            labelStyle: const TextStyle(
-                              color: Colors.white70,
-                              fontSize: 12,
-                            ),
-                            padding: EdgeInsets.zero,
-                          ),
-                          Chip(
-                            avatar: const Icon(
-                              Icons.person,
-                              size: 14,
-                              color: Colors.greenAccent,
-                            ),
-                            label: Text('CC: $ccName'),
-                            backgroundColor: const Color(0xFF1E293B),
-                            labelStyle: const TextStyle(
-                              color: Colors.white70,
-                              fontSize: 12,
-                            ),
-                            padding: EdgeInsets.zero,
-                          ),
-                        ],
-                      ),
-
-                      SizedBox(height: isMobile ? 8 : 14),
-
-                      // View Toggle Selector
-                      Container(
-                        padding: const EdgeInsets.all(3),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF1E293B),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            _buildToggleButton(
-                              index: 0,
-                              label: 'Grid Matrix',
-                              icon: Icons.grid_on,
-                            ),
-                            const SizedBox(width: 4),
-                            _buildToggleButton(
-                              index: 1,
-                              label: 'Vercel Bars',
-                              icon: Icons.segment,
+                            Chip(
+                              avatar: const Icon(
+                                Icons.person,
+                                size: 14,
+                                color: Colors.greenAccent,
+                              ),
+                              label: Text('CC: $ccName'),
+                              backgroundColor: const Color(0xFF1E293B),
+                              labelStyle: const TextStyle(
+                                color: Colors.white70,
+                                fontSize: 12,
+                              ),
+                              padding: EdgeInsets.zero,
                             ),
                           ],
                         ),
-                      ),
-                    ],
-                  ),
-                ),
 
-                // Main View Content
-                Expanded(
-                  child: _selectedViewIndex == 0
-                      ? WeeklyMatrixGridWidget(
-                          classId: widget.classId,
-                          className: widget.className,
-                          userRole: 'student',
-                          currentFacultyId: 0,
-                          canEdit: false,
-                          swapColorIndex: _swapColorIndex,
-                        )
-                      : VercelBarsTimetableWidget(
-                          classId: widget.classId,
-                          className: widget.className,
-                          entries: _entries,
-                          department: dept,
-                          roomNo: room,
-                          userRole: 'student',
-                          currentFacultyId: 0,
-                          swapColorIndex: _swapColorIndex,
+                        SizedBox(height: isMobile ? 8 : 14),
+
+                        // View Toggle Selector
+                        Container(
+                          padding: const EdgeInsets.all(3),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF1E293B),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              _buildToggleButton(
+                                index: 0,
+                                label: 'Grid Matrix',
+                                icon: Icons.grid_on,
+                              ),
+                              const SizedBox(width: 4),
+                              _buildToggleButton(
+                                index: 1,
+                                label: 'Vercel Bars',
+                                icon: Icons.segment,
+                              ),
+                            ],
+                          ),
                         ),
-                ),
-              ],
+                      ],
+                    ),
+                  ),
+
+                  // Main View Content
+                  Expanded(
+                    child: _selectedViewIndex == 0
+                        ? WeeklyMatrixGridWidget(
+                            classId: widget.classId,
+                            className: widget.className,
+                            userRole: 'student',
+                            currentFacultyId: 0,
+                            canEdit: false,
+                            swapColorIndex: _swapColorIndex,
+                          )
+                        : VercelBarsTimetableWidget(
+                            classId: widget.classId,
+                            className: widget.className,
+                            entries: _entries,
+                            department: dept,
+                            roomNo: room,
+                            userRole: 'student',
+                            currentFacultyId: 0,
+                            swapColorIndex: _swapColorIndex,
+                          ),
+                  ),
+                ],
+              ),
             ),
     );
   }

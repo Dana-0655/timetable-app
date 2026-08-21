@@ -29,7 +29,7 @@ class _FacultyPendingLeavesScreenState
   }
 
   Future<void> _fetchMyOpenLeaves() async {
-    setState(() => _isLoading = true);
+    if (mounted) setState(() => _isLoading = true);
     List<dynamic> myOpen = [];
 
     try {
@@ -65,12 +65,12 @@ class _FacultyPendingLeavesScreenState
         }
       }
 
-      setState(() {
+      if (mounted) setState(() {
         _myOpenEntries = myOpen;
         _isLoading = false;
       });
     } catch (e) {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -193,7 +193,7 @@ class _FacultyPendingLeavesScreenState
                       TextField(
                         controller: searchController,
                         decoration: InputDecoration(
-                          hintText: 'Search by name or email...',
+                          hintText: 'Search by name or user ID...',
                           prefixIcon: const Icon(Icons.search),
                           suffixIcon: searchQuery.isNotEmpty
                               ? IconButton(

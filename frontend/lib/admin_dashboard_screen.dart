@@ -100,7 +100,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           orElse: () => null,
         );
 
-        setState(() {
+        if (mounted) setState(() {
           _hasActiveSemester = activeSem != null;
           _activeSemesterId = activeSem?['semester_id'];
         });
@@ -198,7 +198,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         final fid = data['faculty_id'] as int;
-        setState(() => _linkedFacultyId = fid);
+        if (mounted) setState(() => _linkedFacultyId = fid);
         return fid;
       }
     } catch (e) {
@@ -290,7 +290,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                 ListTile(
                   leading: const Icon(Icons.email, color: Colors.blue),
                   title: Text(data['email']),
-                  subtitle: const Text('Email'),
+                  subtitle: const Text('User ID'),
                 ),
                 ListTile(
                   leading: const Icon(Icons.book, color: Colors.blue),
@@ -351,6 +351,27 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   }
 
   Future<void> _logout() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Logout'),
+        content: const Text('Are you sure you want to log out?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Logout', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
     await SessionManager.clearSession();
     await SessionManager.clearLastPage();
     final savedCollege = await SessionManager.getSavedCollegeCode();
@@ -505,7 +526,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   }
 
   Future<void> _fetchClasses() async {
-    setState(() => _isLoading = true);
+    if (mounted) setState(() => _isLoading = true);
 
     if (_localSemesterId != null) {
       _hasActiveSemester = true;
@@ -515,15 +536,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       try {
         final response = await http.get(url);
         if (response.statusCode == 200) {
-          setState(() {
+          if (mounted) setState(() {
             _classes = jsonDecode(response.body);
             _isLoading = false;
           });
         } else {
-          setState(() => _isLoading = false);
+          if (mounted) setState(() => _isLoading = false);
         }
       } catch (e) {
-        setState(() => _isLoading = false);
+        if (mounted) setState(() => _isLoading = false);
       }
       return;
     }
@@ -536,7 +557,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       if (semResponse.statusCode == 200) {
         final List<dynamic> semesters = jsonDecode(semResponse.body);
         final hasActive = semesters.any((s) => s['is_active'] == true);
-        setState(() => _hasActiveSemester = hasActive);
+        if (mounted) setState(() => _hasActiveSemester = hasActive);
       }
     } catch (e) {
       // Silently fail for now
@@ -546,18 +567,18 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     try {
       final response = await http.get(url);
       if (response.statusCode == 200) {
-        setState(() {
+        if (mounted) setState(() {
           _classes = jsonDecode(response.body);
           _isLoading = false;
         });
       }
     } catch (e) {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
   Future<void> _fetchMyFacultyRoles() async {
-    setState(() => _isLoadingRoles = true);
+    if (mounted) setState(() => _isLoadingRoles = true);
     final ctxUrl = Uri.parse(
       'http://127.0.0.1:5000/admin_faculty_context/${widget.adminId}',
     );
@@ -572,7 +593,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           );
           final classesResponse = await http.get(classesUrl);
           if (classesResponse.statusCode == 200) {
-            setState(() {
+            if (mounted) setState(() {
               _linkedFacultyId = fid;
               _myRoleClasses = jsonDecode(classesResponse.body);
             });
@@ -582,7 +603,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     } catch (e) {
       // Silently fail for now
     }
-    setState(() => _isLoadingRoles = false);
+    if (mounted) setState(() => _isLoadingRoles = false);
   }
 
   Future<void> _openSemesterManagement() async {
@@ -595,12 +616,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     );
 
     if (result is Map && result.containsKey('local_semester_id')) {
-      setState(() {
+      if (mounted) setState(() {
         _localSemesterId = result['local_semester_id'] as int?;
         _localSemesterName = result['semester_name'] as String?;
       });
     } else {
-      setState(() {
+      if (mounted) setState(() {
         _localSemesterId = null;
         _localSemesterName = null;
       });
@@ -610,7 +631,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   }
 
   void _clearLocalSemester() {
-    setState(() {
+    if (mounted) setState(() {
       _localSemesterId = null;
       _localSemesterName = null;
     });
@@ -1096,7 +1117,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                         const SizedBox(width: 8),
                         OutlinedButton.icon(
                           icon: const Icon(Icons.pending_actions, size: 16),
-                          label: const Text('My Leave Requests'),
+                          label: const Text('My Leaves'),
                           onPressed: () => Navigator.push(
                             context,
                             MaterialPageRoute(
@@ -1209,10 +1230,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
                       if (isMobile) {
                         return Card(
-                          margin: const EdgeInsets.only(bottom: 12),
-                          elevation: 2,
+                          margin: const EdgeInsets.only(bottom: 16),
+                          elevation: 0,
                           shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
+                            borderRadius: BorderRadius.circular(16),
                             side: BorderSide(
                               color: isMyCC ? Colors.purple.shade200 : Colors.grey.shade200,
                             ),
@@ -1377,7 +1398,13 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                       }
 
                       return Card(
-                        color: isMyCC ? Colors.purple.shade50 : null,
+                        margin: const EdgeInsets.only(bottom: 12),
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          side: BorderSide(color: Colors.grey.shade200),
+                        ),
+                        color: isMyCC ? Colors.purple.shade50 : Colors.white,
                         child: ListTile(
                           title: Row(
                             children: [

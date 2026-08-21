@@ -26,6 +26,7 @@ class _AdminAddFacultyScreenState extends State<AdminAddFacultyScreen> {
   bool _isSaving = false;
   bool _isLoadingList = false;
   List<dynamic> _existingFaculty = [];
+  String _searchQuery = '';
 
   @override
   void initState() {
@@ -34,20 +35,20 @@ class _AdminAddFacultyScreenState extends State<AdminAddFacultyScreen> {
   }
 
   Future<void> _loadExistingFaculty() async {
-    setState(() => _isLoadingList = true);
+    if (mounted) setState(() => _isLoadingList = true);
     try {
       final response = await http.get(
         Uri.parse('http://127.0.0.1:5000/faculty_list/${widget.collegeId}'),
       );
       if (response.statusCode == 200) {
-        setState(() {
+        if (mounted) setState(() {
           _existingFaculty = jsonDecode(response.body);
         });
       }
     } catch (e) {
       // ignore connection blips
     }
-    setState(() => _isLoadingList = false);
+    if (mounted) setState(() => _isLoadingList = false);
   }
 
   Future<void> _addFaculty() async {
@@ -55,12 +56,12 @@ class _AdminAddFacultyScreenState extends State<AdminAddFacultyScreen> {
         _emailController.text.trim().isEmpty ||
         _passwordController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please fill Name, Email, and Password.')),
+        const SnackBar(content: Text('Please fill Name, User ID, and Password.')),
       );
       return;
     }
 
-    setState(() => _isSaving = true);
+    if (mounted) setState(() => _isSaving = true);
 
     final url = Uri.parse('http://127.0.0.1:5000/admin_create_faculty');
     try {
@@ -105,11 +106,18 @@ class _AdminAddFacultyScreenState extends State<AdminAddFacultyScreen> {
       }
     }
 
-    setState(() => _isSaving = false);
+    if (mounted) setState(() => _isSaving = false);
   }
 
   @override
   Widget build(BuildContext context) {
+    final filteredFaculty = _existingFaculty.where((f) {
+      final name = f['name']?.toString().toLowerCase() ?? '';
+      final email = f['email']?.toString().toLowerCase() ?? '';
+      final query = _searchQuery.toLowerCase();
+      return name.contains(query) || email.contains(query);
+    }).toList();
+
     return Scaffold(
       appBar: AppBar(title: const Text('Add Faculty Accounts')),
       body: Padding(
@@ -133,7 +141,7 @@ class _AdminAddFacultyScreenState extends State<AdminAddFacultyScreen> {
             TextField(
               controller: _emailController,
               decoration: const InputDecoration(
-                labelText: 'Email',
+                labelText: 'User ID',
                 border: OutlineInputBorder(),
               ),
             ),
@@ -164,20 +172,40 @@ class _AdminAddFacultyScreenState extends State<AdminAddFacultyScreen> {
               ),
             ),
             const SizedBox(height: 24),
-            const Text(
-              'Available Faculty Members:',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+            Row(
+              children: [
+                const Text(
+                  'Available Faculty Members',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                ),
+                const Spacer(),
+                SizedBox(
+                  width: 250,
+                  height: 40,
+                  child: TextField(
+                    decoration: InputDecoration(
+                      hintText: 'Search faculty...',
+                      prefixIcon: const Icon(Icons.search, size: 18),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                    ),
+                    onChanged: (value) => setState(() => _searchQuery = value),
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 12),
             Expanded(
               child: _isLoadingList
                   ? const Center(child: CircularProgressIndicator())
-                  : _existingFaculty.isEmpty
-                      ? const Center(child: Text('No faculty registered yet.'))
+                  : filteredFaculty.isEmpty
+                      ? const Center(child: Text('No faculty found matching search.'))
                       : ListView.builder(
-                          itemCount: _existingFaculty.length,
+                          itemCount: filteredFaculty.length,
                           itemBuilder: (context, index) {
-                            final f = _existingFaculty[index];
+                            final f = filteredFaculty[index];
                             return Card(
                               margin: const EdgeInsets.only(bottom: 8),
                               child: ListTile(

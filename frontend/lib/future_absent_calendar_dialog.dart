@@ -41,7 +41,7 @@ class _FutureAbsentCalendarDialogState extends State<FutureAbsentCalendarDialog>
                 lastDate: DateTime.now().add(const Duration(days: 90)),
               );
               if (date != null) {
-                setState(() {
+                if (mounted) setState(() {
                   _selectedDate = date;
                 });
               }

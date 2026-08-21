@@ -25,14 +25,14 @@ class _SwapInboxScreenState extends State<SwapInboxScreen> {
   }
 
   Future<void> _fetchRequests() async {
-    setState(() => _isLoadingRequests = true);
+    if (mounted) setState(() => _isLoadingRequests = true);
     final url = Uri.parse(
       'http://127.0.0.1:5000/swap_requests/${widget.facultyId}',
     );
     try {
       final response = await http.get(url);
       if (response.statusCode == 200) {
-        setState(() {
+        if (mounted) setState(() {
           _requests = jsonDecode(response.body);
         });
       }
@@ -41,25 +41,25 @@ class _SwapInboxScreenState extends State<SwapInboxScreen> {
     }
     // Always clear the spinner — a non-200 response or exception must not
     // leave this stuck loading forever.
-    setState(() => _isLoadingRequests = false);
+    if (mounted) setState(() => _isLoadingRequests = false);
   }
 
   Future<void> _fetchResponses() async {
-    setState(() => _isLoadingResponses = true);
+    if (mounted) setState(() => _isLoadingResponses = true);
     final url = Uri.parse(
       'http://127.0.0.1:5000/swap_responses/${widget.facultyId}',
     );
     try {
       final response = await http.get(url);
       if (response.statusCode == 200) {
-        setState(() {
+        if (mounted) setState(() {
           _responses = jsonDecode(response.body);
         });
       }
     } catch (e) {
       // Silently fail for now
     }
-    setState(() => _isLoadingResponses = false);
+    if (mounted) setState(() => _isLoadingResponses = false);
   }
 
   Future<void> _resolveRequest(int swapId, String decision) async {

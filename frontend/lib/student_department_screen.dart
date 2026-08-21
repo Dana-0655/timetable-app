@@ -32,18 +32,18 @@ class _StudentDepartmentScreenState extends State<StudentDepartmentScreen> {
       final response = await http.get(url);
       if (response.statusCode == 200) {
         final List<dynamic> data = jsonDecode(response.body);
-        setState(() {
+        if (mounted) setState(() {
           _departments = data.cast<String>();
           _isLoading = false;
         });
       } else {
-        setState(() {
+        if (mounted) setState(() {
           _errorMessage = 'Could not load departments.';
           _isLoading = false;
         });
       }
     } catch (e) {
-      setState(() {
+      if (mounted) setState(() {
         _errorMessage = 'Could not connect to server.';
         _isLoading = false;
       });

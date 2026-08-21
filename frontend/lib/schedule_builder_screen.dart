@@ -34,13 +34,13 @@ class _ScheduleBuilderScreenState extends State<ScheduleBuilderScreen> {
     for (int i = 0; i < _numBreaks; i++) {
       _slotOrder.add('break');
     }
-    setState(() {
+    if (mounted) setState(() {
       _showOrderStep = true;
     });
   }
 
   void _reorder(int oldIndex, int newIndex) {
-    setState(() {
+    if (mounted) setState(() {
       if (newIndex > oldIndex) newIndex -= 1;
       final item = _slotOrder.removeAt(oldIndex);
       _slotOrder.insert(newIndex, item);
@@ -48,7 +48,7 @@ class _ScheduleBuilderScreenState extends State<ScheduleBuilderScreen> {
   }
 
   Future<void> _saveSchedule() async {
-    setState(() => _isSaving = true);
+    if (mounted) setState(() => _isSaving = true);
     final url = Uri.parse('http://127.0.0.1:5000/generate_schedule');
     try {
       final response = await http.post(
@@ -72,7 +72,7 @@ class _ScheduleBuilderScreenState extends State<ScheduleBuilderScreen> {
         );
       }
     }
-    setState(() => _isSaving = false);
+    if (mounted) setState(() => _isSaving = false);
   }
 
   @override
@@ -119,7 +119,7 @@ class _ScheduleBuilderScreenState extends State<ScheduleBuilderScreen> {
             divisions: 11,
             label: '$_numPeriods',
             onChanged: (value) {
-              setState(() => _numPeriods = value.round());
+              if (mounted) setState(() => _numPeriods = value.round());
             },
           ),
           Text(
@@ -138,7 +138,7 @@ class _ScheduleBuilderScreenState extends State<ScheduleBuilderScreen> {
             divisions: 4,
             label: '$_numBreaks',
             onChanged: (value) {
-              setState(() => _numBreaks = value.round());
+              if (mounted) setState(() => _numBreaks = value.round());
             },
           ),
           Text(

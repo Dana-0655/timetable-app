@@ -38,7 +38,7 @@ class _FacultyMyScheduleScreenState extends State<FacultyMyScheduleScreen> {
   }
 
   Future<void> _fetchMySchedule() async {
-    setState(() => _isLoading = true);
+    if (mounted) setState(() => _isLoading = true);
     try {
       final url = Uri.parse(
         'http://127.0.0.1:5000/faculty_timetable/${widget.facultyId}',
@@ -46,16 +46,16 @@ class _FacultyMyScheduleScreenState extends State<FacultyMyScheduleScreen> {
       final response = await http.get(url);
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        setState(() {
+        if (mounted) setState(() {
           _myEntries = data;
           _swapColorIndex = buildSwapColorIndex(_myEntries);
           _isLoading = false;
         });
       } else {
-        setState(() => _isLoading = false);
+        if (mounted) setState(() => _isLoading = false);
       }
     } catch (e) {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 

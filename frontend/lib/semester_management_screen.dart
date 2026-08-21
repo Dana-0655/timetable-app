@@ -23,20 +23,21 @@ class _SemesterManagementScreenState extends State<SemesterManagementScreen> {
   }
 
   Future<void> _fetchSemesters() async {
-    setState(() => _isLoading = true);
+    if (mounted) setState(() => _isLoading = true);
     final url = Uri.parse(
       'http://127.0.0.1:5000/semesters/${widget.collegeId}',
     );
     try {
       final response = await http.get(url);
       if (response.statusCode == 200) {
-        setState(() {
+        if (mounted) setState(() {
           _semesters = jsonDecode(response.body);
-          _isLoading = false;
         });
       }
     } catch (e) {
-      setState(() => _isLoading = false);
+      // Silently fail for now
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -73,6 +74,7 @@ class _SemesterManagementScreenState extends State<SemesterManagementScreen> {
   }
 
   Future<void> _createSemester(String name) async {
+    if (mounted) setState(() => _isLoading = true);
     final url = Uri.parse('http://127.0.0.1:5000/create_semester');
     try {
       final response = await http.post(
@@ -84,14 +86,17 @@ class _SemesterManagementScreenState extends State<SemesterManagementScreen> {
         }),
       );
       if (response.statusCode == 200) {
-        _fetchSemesters();
+        await _fetchSemesters();
+      } else {
+        if (mounted) setState(() => _isLoading = false);
       }
     } catch (e) {
-      // Silently fail for now
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
   Future<void> _switchSemesterForEveryone(int semesterId) async {
+    if (mounted) setState(() => _isLoading = true);
     final url = Uri.parse('http://127.0.0.1:5000/switch_semester');
     try {
       final response = await http.post(
@@ -108,10 +113,12 @@ class _SemesterManagementScreenState extends State<SemesterManagementScreen> {
             const SnackBar(content: Text('Semester switched for everyone!')),
           );
         }
-        _fetchSemesters();
+        await _fetchSemesters();
+      } else {
+        if (mounted) setState(() => _isLoading = false);
       }
     } catch (e) {
-      // Silently fail for now
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 

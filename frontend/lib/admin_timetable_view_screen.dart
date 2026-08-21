@@ -63,7 +63,7 @@ class _AdminTimetableViewScreenState extends State<AdminTimetableViewScreen> {
     } catch (_) {}
 
     if (mounted) {
-      setState(() {});
+      if (mounted) setState(() {});
     }
   }
 

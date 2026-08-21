@@ -68,169 +68,179 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen> {
           ),
         ],
       ),
-      body: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const SizedBox(height: 8),
-            const Text(
-              'Who are you signing in as?',
-              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 6),
-            const Text(
-              'Select your role to continue',
-              style: TextStyle(fontSize: 14, color: Colors.black54),
-            ),
-            const SizedBox(height: 32),
-            Expanded(
-              child: ListView.separated(
-                itemCount: _roles.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 16),
-                itemBuilder: (context, index) {
-                  final role = _roles[index];
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 500),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SizedBox(height: 48),
+                const Text(
+                  'Welcome to Timetable',
+                  style: TextStyle(
+                    fontSize: 28,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF1E3A8A),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Select your role to continue',
+                  style: TextStyle(fontSize: 16, color: Colors.black54),
+                ),
+                const SizedBox(height: 40),
+                Expanded(
+                  child: ListView.separated(
+                    itemCount: _roles.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 16),
+                    itemBuilder: (context, index) {
+                      final role = _roles[index];
 
-                  return TweenAnimationBuilder<double>(
-                    tween: Tween(begin: 0.0, end: 1.0),
-                    duration: Duration(milliseconds: 500 + (index * 150)),
-                    curve: Curves.easeOutCubic,
-                    builder: (context, value, child) {
-                      return Opacity(
-                        opacity: value,
-                        child: Transform.translate(
-                          offset: Offset(0, 30 * (1 - value)),
-                          child: child,
+                      return TweenAnimationBuilder<double>(
+                        tween: Tween(begin: 0.0, end: 1.0),
+                        duration: Duration(milliseconds: 500 + (index * 150)),
+                        curve: Curves.easeOutCubic,
+                        builder: (context, value, child) {
+                          return Opacity(
+                            opacity: value,
+                            child: Transform.translate(
+                              offset: Offset(0, 30 * (1 - value)),
+                              child: child,
+                            ),
+                          );
+                        },
+                        child: GestureDetector(
+                          onTapDown: (_) => setState(() => _pressedIndex = index),
+                          onTapUp: (_) => setState(() => _pressedIndex = null),
+                          onTapCancel: () => setState(() => _pressedIndex = null),
+                          onTap: () {
+                            if (role.label == 'Admin') {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => const AdminLoginScreen(),
+                                ),
+                              );
+                            } else if (role.label == 'Faculty') {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => const FacultyLoginScreen(),
+                                ),
+                              );
+                            } else if (role.label == 'Student') {
+                              if (_pinnedClass != null) {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => StudentTimetableScreen(
+                                      classId: _pinnedClass!['classId'],
+                                      className: _pinnedClass!['className'],
+                                    ),
+                                  ),
+                                ).then((_) => _loadPinnedClass());
+                              } else {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => StudentDepartmentScreen(
+                                      collegeId: widget.collegeId,
+                                    ),
+                                  ),
+                                ).then((_) => _loadPinnedClass());
+                              }
+                            }
+                          },
+                          child: AnimatedScale(
+                            scale: _pressedIndex == index ? 0.97 : 1.0,
+                            duration: const Duration(milliseconds: 120),
+                            child: Container(
+                              padding: const EdgeInsets.all(24),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(color: Colors.grey.shade200),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withValues(alpha: 0.03),
+                                    blurRadius: 16,
+                                    offset: const Offset(0, 8),
+                                  ),
+                                ],
+                              ),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    width: 56,
+                                    height: 56,
+                                    decoration: BoxDecoration(
+                                      color: role.color.withValues(alpha: 0.1),
+                                      borderRadius: BorderRadius.circular(14),
+                                    ),
+                                    child: Icon(
+                                      role.icon,
+                                      color: role.color,
+                                      size: 30,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 20),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          role.label,
+                                          style: const TextStyle(
+                                            fontSize: 18,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                        if (role.label == 'Student' && _pinnedClass != null) ...[
+                                          const SizedBox(height: 4),
+                                          Row(
+                                            children: [
+                                              const Icon(
+                                                Icons.push_pin_rounded,
+                                                size: 14,
+                                                color: Color(0xFFEF6C00),
+                                              ),
+                                              const SizedBox(width: 4),
+                                              Expanded(
+                                                child: Text(
+                                                  'Pinned: ${_pinnedClass!['className']}',
+                                                  style: const TextStyle(
+                                                    fontSize: 13,
+                                                    color: Color(0xFFEF6C00),
+                                                    fontWeight: FontWeight.w600,
+                                                  ),
+                                                  overflow: TextOverflow.ellipsis,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ],
+                                      ],
+                                    ),
+                                  ),
+                                  const Icon(
+                                    Icons.arrow_forward_ios_rounded,
+                                    size: 18,
+                                    color: Colors.black26,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
                         ),
                       );
                     },
-                    child: GestureDetector(
-                      onTapDown: (_) => setState(() => _pressedIndex = index),
-                      onTapUp: (_) => setState(() => _pressedIndex = null),
-                      onTapCancel: () => setState(() => _pressedIndex = null),
-                      onTap: () {
-                        if (role.label == 'Admin') {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => const AdminLoginScreen(),
-                            ),
-                          );
-                        } else if (role.label == 'Faculty') {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => const FacultyLoginScreen(),
-                            ),
-                          );
-                        } else if (role.label == 'Student') {
-                          if (_pinnedClass != null) {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) => StudentTimetableScreen(
-                                  classId: _pinnedClass!['classId'],
-                                  className: _pinnedClass!['className'],
-                                ),
-                              ),
-                            ).then((_) => _loadPinnedClass());
-                          } else {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) => StudentDepartmentScreen(
-                                  collegeId: widget.collegeId,
-                                ),
-                              ),
-                            ).then((_) => _loadPinnedClass());
-                          }
-                        }
-                      },
-                      child: AnimatedScale(
-                        scale: _pressedIndex == index ? 0.97 : 1.0,
-                        duration: const Duration(milliseconds: 120),
-                        child: Container(
-                          padding: const EdgeInsets.all(20),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(16),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withValues(alpha: 0.06),
-                                blurRadius: 12,
-                                offset: const Offset(0, 4),
-                              ),
-                            ],
-                          ),
-                          child: Row(
-                            children: [
-                              Container(
-                                width: 52,
-                                height: 52,
-                                decoration: BoxDecoration(
-                                  color: role.color.withValues(alpha: 0.12),
-                                  borderRadius: BorderRadius.circular(14),
-                                ),
-                                child: Icon(
-                                  role.icon,
-                                  color: role.color,
-                                  size: 28,
-                                ),
-                              ),
-                              const SizedBox(width: 16),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      role.label,
-                                      style: const TextStyle(
-                                        fontSize: 17,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                    if (role.label == 'Student' && _pinnedClass != null) ...[
-                                      const SizedBox(height: 3),
-                                      Row(
-                                        children: [
-                                          const Icon(
-                                            Icons.push_pin_rounded,
-                                            size: 13,
-                                            color: Color(0xFFEF6C00),
-                                          ),
-                                          const SizedBox(width: 4),
-                                          Expanded(
-                                            child: Text(
-                                              '${_pinnedClass!['className']}',
-                                              style: const TextStyle(
-                                                fontSize: 12,
-                                                color: Color(0xFFEF6C00),
-                                                fontWeight: FontWeight.w600,
-                                              ),
-                                              overflow: TextOverflow.ellipsis,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ],
-                                  ],
-                                ),
-                              ),
-                              const Icon(
-                                Icons.arrow_forward_ios_rounded,
-                                size: 16,
-                                color: Colors.black38,
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  );
-                },
-              ),
+                  ),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
